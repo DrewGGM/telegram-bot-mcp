@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "smoke:guardrail": "node scripts/smoke-guardrail.mjs --with-live",
+    "smoke:turn": "node scripts/smoke-turn.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm run test"
   },

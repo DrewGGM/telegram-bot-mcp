@@ -9,6 +9,7 @@ This project separates **what can be proven automatically** from **the one step 
 | Unit + integration suite | `npm run check` | All module logic; non-owner gets no reply (FR-1); routing; parsing; path/command guards. |
 | Coverage gate | `npm run coverage` | ≥90% statements on security-critical modules. |
 | Guardrail smoke (real Claude) | `npm run smoke:guardrail` | In `full`/bypassPermissions mode, a live agent is **blocked** outside the allowlist and on deny-listed commands; allowed work succeeds. |
+| Turn pipeline (real Claude) | `npm run smoke:turn` | `SessionManager` spawns a live `claude`, streams a result back, and a second turn **resumes context** (FR-5). |
 | MCP bridge E2E | `npx vitest run src/mcp/server.test.ts` | Real bridge subprocess → loopback IPC → daemon, destination fixed by token (ADR-5). |
 | Live boot | `TBM_SMOKE_EXIT_MS=6000 npm run start:dev` | Daemon connects to Telegram (long polling) and shuts down cleanly. |
 
@@ -16,6 +17,7 @@ This project separates **what can be proven automatically** from **the one step 
 - ✅ 164/164 tests passing, typecheck clean.
 - ✅ Coverage 90.5% overall on the security-critical set (commands/paths/auth/args/cli/pending/format at 95–100%).
 - ✅ Guardrail smoke: **5/5** — including a live `full`-mode session blocked from writing outside the allowlist.
+- ✅ Turn pipeline: **2/2** — live `claude` streamed a result and resumed context (recalled a secret word across turns).
 - ✅ MCP bridge E2E: 3/3 through a real subprocess.
 - ✅ Live boot: connected as the configured bot, long polling started, clean shutdown.
 

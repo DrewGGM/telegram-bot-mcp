@@ -165,6 +165,22 @@ The final human-in-the-loop step (you chatting from your phone) is the one part 
 
 ---
 
+## Design notes & deliberate deviations
+
+- **Session store is JSON, not SQLite.** The blueprint named SQLite; for a strictly
+  single-user daemon an atomic JSON document is simpler, has no native build step,
+  and is trivially inspectable (YAGNI). The interface is small, so swapping in SQLite
+  later is a contained change.
+- **FR-16 (destructive-op confirmation)** is realized through **permission modes +
+  the guardrail hook**, not a per-edit Telegram button. `ro` never edits; `edit`/`full`
+  auto-apply changes *inside* the allowlist while the hook hard-blocks writes outside it
+  and all deny-listed commands — even in `full`. There is intentionally **no unconfirmed
+  bot-level delete command**. Allowlist changes via `/config` still require a button
+  confirmation, and the agent can ask you to confirm anything via `telegram_ask_user`.
+- **Reads are allowed broadly; writes/execs are confined.** Because the message
+  destination is fixed to you (ADR-5), a broad read grants no exfiltration capability,
+  so the hook gates the dangerous surface (writes, commands) rather than reads.
+
 ## Project layout
 
 ```
