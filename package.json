@@ -1,0 +1,37 @@
+{
+  "name": "telegram-bot-mcp",
+  "version": "0.1.0",
+  "description": "Telegram ↔ Claude Code bridge: control your PC's AI agent sessions, files and terminals from Telegram, with hard security guardrails.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "start:dev": "tsx src/main.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "smoke:guardrail": "node scripts/smoke-guardrail.mjs --with-live",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0",
+    "pino": "^9.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

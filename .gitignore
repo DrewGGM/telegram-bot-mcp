@@ -1,0 +1,16 @@
+# deps & build
+node_modules/
+dist/
+
+# runtime state (db, audit log, generated per-session configs)
+data/
+config.json
+
+# generated coverage report
+coverage/
+
+# secrets
+.env
+
+# logs
+*.log
