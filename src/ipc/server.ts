@@ -14,7 +14,14 @@ import { log } from "../logger.js";
 
 interface Registered {
   sessionId: string;
-  target: BridgeTarget;
+  /**
+   * Resolved per request rather than stored flat, so a long-lived token (the
+   * global desktop registration, FR-19) still follows the owner even if
+   * ownership is claimed after the daemon started.
+   */
+  getTarget: () => BridgeTarget | undefined;
+  /** Present only for per-turn session tokens, whose topic can be assigned late. */
+  setTarget?: (t: BridgeTarget) => void;
 }
 
 export class IpcServer {
@@ -26,12 +33,15 @@ export class IpcServer {
     this.server = createServer((req, res) => void this.handle(req, res));
   }
 
-  /** Start listening on an ephemeral loopback port. Resolves to the port. */
-  listen(): Promise<number> {
+  /**
+   * Start listening on loopback. Pass a fixed port so a registered desktop
+   * bridge keeps working across restarts; 0 picks an ephemeral port (tests).
+   */
+  listen(port = 0): Promise<number> {
     return new Promise((resolve, reject) => {
       this.server.once("error", reject);
       // 127.0.0.1 explicitly — never 0.0.0.0.
-      this.server.listen(0, "127.0.0.1", () => {
+      this.server.listen(port, "127.0.0.1", () => {
         const addr = this.server.address();
         this.boundPort = typeof addr === "object" && addr ? addr.port : 0;
         log.info({ port: this.boundPort }, "IPC server listening on loopback");
@@ -47,14 +57,30 @@ export class IpcServer {
   /** Mint a fresh token bound to a session's destination. */
   registerSession(sessionId: string, target: BridgeTarget): string {
     const token = randomBytes(24).toString("hex");
-    this.tokens.set(token, { sessionId, target });
+    let current = target;
+    this.tokens.set(token, {
+      sessionId,
+      getTarget: () => current,
+      setTarget: (t) => {
+        current = t;
+      },
+    });
     return token;
+  }
+
+  /**
+   * Register a caller-supplied token whose destination is resolved on each
+   * request — used for the persistent desktop registration (FR-19), where the
+   * token lives in your Claude Code config and the owner may be claimed later.
+   */
+  registerPersistent(sessionId: string, token: string, getTarget: () => BridgeTarget | undefined): void {
+    this.tokens.set(token, { sessionId, getTarget });
   }
 
   /** Update the destination for every token of a session (e.g. topic assigned late). */
   updateTarget(sessionId: string, target: BridgeTarget): void {
     for (const reg of this.tokens.values()) {
-      if (reg.sessionId === sessionId) reg.target = target;
+      if (reg.sessionId === sessionId) reg.setTarget?.(target);
     }
   }
 
@@ -79,20 +105,27 @@ export class IpcServer {
         return json(res, 403, { error: "forbidden" });
       }
 
+      // Destination is resolved here, by the daemon — never taken from the body.
+      const target = reg.getTarget();
+      if (!target) {
+        audit({ kind: "ipc.rejected", reason: "no owner claimed yet" });
+        return json(res, 409, { error: "no owner configured; send /start to the bot first" });
+      }
+
       const body = await readJson(req);
       const route = req.url ?? "";
 
       if (route === "/send_message") {
-        await this.bridge.sendMessage(reg.target, String(body.text ?? ""));
+        await this.bridge.sendMessage(target, String(body.text ?? ""));
         return json(res, 200, { ok: true });
       }
       if (route === "/send_file") {
-        await this.bridge.sendFile(reg.target, String(body.path ?? ""), body.caption ? String(body.caption) : undefined);
+        await this.bridge.sendFile(target, String(body.path ?? ""), body.caption ? String(body.caption) : undefined);
         return json(res, 200, { ok: true });
       }
       if (route === "/ask_user") {
         const options = Array.isArray(body.options) ? body.options.map(String) : [];
-        const answer = await this.bridge.askUser(reg.target, String(body.question ?? ""), options);
+        const answer = await this.bridge.askUser(target, String(body.question ?? ""), options);
         return json(res, 200, { answer });
       }
       return json(res, 404, { error: "unknown route" });

@@ -117,7 +117,28 @@ On first run a `config.json` is created with `allowedDirs = [~/Downloads, ~/Desk
 2. In that group, send `/setgroup`.
 3. Now `/new Downloads sonnet edit` creates a session in its own topic.
 
-### 5. Auto-start on logon (Windows)
+### 5. (Optional) Register the bridge for *every* Claude Code session (FR-19)
+
+By default the `telegram_*` tools exist only inside sessions the daemon launches.
+Register the bridge once at user scope and **any** Claude Code session on this
+machine can notify you on Telegram — handy for long local builds:
+
+```bash
+npm run register:global          # add --dry-run to preview
+```
+
+This runs `claude mcp add telegram-bridge -s user …` pointing at the daemon's
+fixed loopback port. Undo with `claude mcp remove telegram-bridge -s user`.
+The daemon must be running for the tools to work; if no owner has claimed the
+bot yet, calls are refused rather than misrouted.
+
+> **Security note.** This registration needs a token that survives restarts, so
+> this single token is persisted to `data/bridge-token` (chmod 0600, git-ignored)
+> — a deliberate exception to "IPC tokens never touch disk". Per-turn session
+> tokens stay memory-only. The token is useless remotely (loopback only) and
+> still cannot choose a recipient or escape the folder allowlist.
+
+### 6. Auto-start on logon (Windows)
 ```powershell
 pwsh -File scripts/install-windows.ps1     # registers a Scheduled Task
 Start-ScheduledTask -TaskName TelegramBotMCP

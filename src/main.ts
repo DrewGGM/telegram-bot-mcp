@@ -4,6 +4,7 @@ import { SessionStore } from "./sessions/store.js";
 import { SessionManager } from "./sessions/manager.js";
 import { PendingQuestions } from "./bot/pending.js";
 import { IpcServer } from "./ipc/server.js";
+import { loadOrCreateGlobalToken } from "./ipc/globalToken.js";
 import { writeGuardrails } from "./security/guardrails.js";
 import { createBot } from "./bot/bot.js";
 import type { TelegramBridge } from "./ipc/protocol.js";
@@ -34,7 +35,15 @@ async function main(): Promise<void> {
     sendFile: (t, p, c) => bridge!.sendFile(t, p, c),
     askUser: (t, q, o) => bridge!.askUser(t, q, o),
   });
-  await ipc.listen();
+  await ipc.listen(config.ipcPort);
+
+  // Desktop registration (FR-19): a stable token whose destination resolves to
+  // the owner's private chat at request time, so any Claude Code session on this
+  // machine can notify you once registered — and it keeps working after restarts.
+  const globalToken = loadOrCreateGlobalToken();
+  ipc.registerPersistent("global", globalToken, () =>
+    getConfig().ownerId ? { chatId: getConfig().ownerId } : undefined,
+  );
 
   const guardrailsPath = writeGuardrails();
   log.info({ guardrailsPath }, "guardrails written");

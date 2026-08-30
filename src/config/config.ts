@@ -26,6 +26,12 @@ const ConfigSchema = z.object({
   claudeBin: z.string().default("claude"),
   /** Incoming messages per minute accepted before throttling. */
   rateLimitPerMinute: z.number().int().positive().default(30),
+  /**
+   * Fixed loopback port for the MCP IPC (FR-19). A stable port is what lets the
+   * bridge be registered once in your desktop Claude Code config and keep
+   * working across daemon restarts. Still 127.0.0.1-only.
+   */
+  ipcPort: z.number().int().min(1024).max(65535).default(8765),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

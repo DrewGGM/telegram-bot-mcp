@@ -100,6 +100,32 @@ describe("IpcServer", () => {
     expect(res.status).toBe(403);
   });
 
+  it("a persistent token resolves its destination per request (FR-19)", async () => {
+    calls = [];
+    let owner: number | undefined = undefined;
+    server.registerPersistent("global", "fixed-token", () =>
+      owner ? { chatId: owner } : undefined,
+    );
+
+    // Before ownership is claimed the daemon refuses rather than misrouting.
+    const early = await post("/send_message", "fixed-token", { text: "too soon" });
+    expect(early.status).toBe(409);
+    expect(calls).toHaveLength(0);
+
+    // Once claimed, the SAME token now routes to the owner.
+    owner = 777;
+    const later = await post("/send_message", "fixed-token", { text: "hi" });
+    expect(later.status).toBe(200);
+    expect(calls[0].target).toEqual({ chatId: 777 });
+  });
+
+  it("a persistent token still cannot choose its destination", async () => {
+    calls = [];
+    server.registerPersistent("global2", "tok2", () => ({ chatId: 11 }));
+    await post("/send_message", "tok2", { text: "x", chatId: 999, topicId: 5 });
+    expect(calls[0].target).toEqual({ chatId: 11 });
+  });
+
   it("updateTarget changes where a live token delivers", async () => {
     calls = [];
     const token = server.registerSession("s5", { chatId: 10 });

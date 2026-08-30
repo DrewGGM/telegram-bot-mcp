@@ -37,3 +37,12 @@ Do this once after setup. Each maps to a functional requirement.
 7. **ask_user (FR-17)** — Prompt the agent to ask you a yes/no question → buttons appear; your tap continues the turn.
 8. **Panic (FR-2)** — `/panic` → running turns die and new ones are refused until `/unlock`.
 9. **Survives reboot** — With the Scheduled Task installed, reboot → the bot is back online without intervention.
+
+## Global registration (FR-19)
+
+| Check | Command | Proves |
+|---|---|---|
+| Desktop bridge, live | `npm run smoke:global` | With the daemon running, a bridge subprocess started **outside** the daemon (persisted token + fixed port) delivers a real Telegram message to the owner. |
+
+- ✅ Verified: `claude mcp list` shows `telegram-bridge — ✔ Connected` at **User config** scope, and a message sent through it arrived on Telegram.
+- The IPC refuses (409) rather than misrouting when no owner has claimed the bot yet.
