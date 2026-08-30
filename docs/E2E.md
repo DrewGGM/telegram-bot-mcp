@@ -11,6 +11,7 @@ This project separates **what can be proven automatically** from **the one step 
 | Guardrail smoke (real Claude) | `npm run smoke:guardrail` | In `full`/bypassPermissions mode, a live agent is **blocked** outside the allowlist and on deny-listed commands; allowed work succeeds. |
 | Turn pipeline (real Claude) | `npm run smoke:turn` | `SessionManager` spawns a live `claude`, streams a result back, and a second turn **resumes context** (FR-5). |
 | MCP bridge E2E | `npx vitest run src/mcp/server.test.ts` | Real bridge subprocess → loopback IPC → daemon, destination fixed by token (ADR-5). |
+| MCP tools in a live agent | `npm run smoke:mcp` | A real `claude` session is offered all three `telegram_*` tools, actually **invokes** `telegram_send_file`, and the call lands on the **daemon-chosen** destination (FR-17/18, ADR-5). |
 | Live boot | `TBM_SMOKE_EXIT_MS=6000 npm run start:dev` | Daemon connects to Telegram (long polling) and shuts down cleanly. |
 
 ### Latest automated results
@@ -19,6 +20,8 @@ This project separates **what can be proven automatically** from **the one step 
 - ✅ Guardrail smoke: **5/5** — including a live `full`-mode session blocked from writing outside the allowlist.
 - ✅ Turn pipeline: **2/2** — live `claude` streamed a result and resumed context (recalled a secret word across turns).
 - ✅ MCP bridge E2E: 3/3 through a real subprocess.
+- ✅ MCP tools in a live agent: **3/3** — a real `claude` session saw all three `telegram_*` tools, invoked `telegram_send_file`, and delivery went to the daemon-chosen destination (not one the agent could pick).
+- ✅ Verified in production from a phone: ownership claim, chat with context, `/sessions` `/status` `/model`, a real agent task exploring an Obsidian vault, and a **guardrail block recorded in the audit log** (`Write` to `~/.claude/plans` refused as outside the allowlist).
 - ✅ Live boot: connected as the configured bot, long polling started, clean shutdown.
 
 ## Manual checklist (from your phone)

@@ -19,7 +19,8 @@
     "smoke:guardrail": "node scripts/smoke-guardrail.mjs --with-live",
     "smoke:turn": "node scripts/smoke-turn.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "smoke:mcp": "node scripts/smoke-mcp-live.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
