@@ -1,5 +1,9 @@
 # Changelog
 
+All notable changes to this project are documented here. This repository doubles
+as the public build report — each milestone from the design blueprint is landed
+and validated below.
+
 ## [0.2.0] — 2026-09-01
 
 ### Added
@@ -35,9 +39,6 @@
 - `/config add` accepted a file as a folder and had a dead validation clause.
 - Misleading `chmod 0600` claim on Windows replaced with an accurate one.
 
-All notable changes to this project are documented here. This repository doubles
-as the public build report — each milestone from the design blueprint is landed
-and validated below.
 
 ## [0.1.0] — 2026-08-28
 
