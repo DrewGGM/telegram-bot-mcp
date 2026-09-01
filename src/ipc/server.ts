@@ -138,9 +138,9 @@ export class IpcServer {
       }
       if (route === "/send_file") {
         const caption = body.caption ? label + String(body.caption) : label || undefined;
-        const messageId = await this.bridge.sendFile(target, String(body.path ?? ""), caption);
-        if (instance && messageId !== undefined) this.instances.claimMessage(messageId, instance.id);
-        return json(res, 200, { ok: true, messageId });
+        const out = await this.bridge.sendFile(target, String(body.path ?? ""), caption);
+        if (instance && out.messageId !== undefined) this.instances.claimMessage(out.messageId, instance.id);
+        return json(res, 200, out);
       }
       if (route === "/ask_user") {
         const options = Array.isArray(body.options) ? body.options.map(String) : [];

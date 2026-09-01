@@ -73,6 +73,37 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     return lastId;
   }
 
+  /**
+   * Upload a document, retrying transient socket failures.
+   *
+   * grammY keeps HTTP connections alive, and the long-polling loop leaves idle
+   * sockets around. When Telegram has already closed one, reusing it surfaces as
+   * `write ECONNRESET` part-way through the request body. Small calls rarely hit
+   * it; multi-hundred-KB uploads do, reliably. A retry gets a fresh socket, so
+   * the InputFile is rebuilt from the path on every attempt (an InputFile that
+   * has begun streaming cannot be replayed).
+   */
+  async function sendDocumentRetrying(
+    chatId: number,
+    filePath: string,
+    opts: Record<string, unknown>,
+    attempts = 3,
+  ) {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await bot.api.sendDocument(chatId, new InputFile(filePath), opts);
+      } catch (err) {
+        lastErr = err;
+        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network/i.test(String(err));
+        if (!transient || attempt === attempts) throw err;
+        log.warn({ attempt, filePath, err: String(err) }, "upload failed, retrying on a fresh socket");
+        await new Promise((r) => setTimeout(r, 750 * attempt));
+      }
+    }
+    throw lastErr;
+  }
+
   async function typing(target: BridgeTarget): Promise<void> {
     try {
       await bot.api.sendChatAction(target.chatId, "typing", {
@@ -452,7 +483,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       return;
     }
     await ctx.replyWithChatAction("upload_document");
-    await ctx.replyWithDocument(new InputFile(res.value!.path));
+    await sendDocumentRetrying(ctx.chat.id, res.value!.path, {});
     audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
   });
 
@@ -600,17 +631,36 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     async sendFile(target, filePath, caption) {
       const res = resolveForGet(filePath, getConfig().allowedDirs);
       if (!res.ok) {
-        return send(target, `⚠️ Agent tried to send a disallowed file: ${res.error}`);
+        // Name the path and record it: without this you get identical, useless
+        // warnings and no way to tell which folder needs allowing.
+        audit({ kind: "guardrail.blocked", tool: "telegram_send_file", rule: "path allowlist", detail: filePath });
+        await send(
+          target,
+          `⚠️ Blocked file send: ${res.error}
+${filePath}
+
+Allow it with: /config add <folder>`,
+        );
+        return { ok: false, error: `${res.error}: ${filePath}` };
       }
       if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-        return send(target, `⚠️ File too large to send (${humanSize(res.value!.size)}).`);
+        const error = `file too large (${humanSize(res.value!.size)}, limit 50 MB)`;
+        await send(target, `⚠️ ${error}: ${filePath}`);
+        return { ok: false, error };
       }
-      const sent = await bot.api.sendDocument(target.chatId, new InputFile(res.value!.path), {
-        ...(caption ? { caption } : {}),
-        ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-      });
-      audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
-      return sent.message_id;
+      try {
+        const sent = await sendDocumentRetrying(target.chatId, res.value!.path, {
+          ...(caption ? { caption } : {}),
+          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
+        });
+        audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
+        return { ok: true, messageId: sent.message_id };
+      } catch (err) {
+        const error = `upload failed: ${String(err)}`;
+        await send(target, `⚠️ Could not upload ${filePath}
+${String(err)}`);
+        return { ok: false, error };
+      }
     },
     async askUser(target, question, options) {
       return ask(target, question, options);

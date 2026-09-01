@@ -38,6 +38,8 @@ let outgoing: { method: string; payload: any }[];
 let bot: Bot;
 let turns: { session: Session; prompt: string }[];
 let instances: InstanceRegistry;
+let bridge: import("../ipc/protocol.js").TelegramBridge;
+let uploadFailuresRemaining = 0;
 
 function baseConfig(): Config {
   return {
@@ -76,6 +78,7 @@ beforeEach(() => {
   outgoing = [];
   turns = [];
   instances = new InstanceRegistry();
+  uploadFailuresRemaining = 0;
 
   const built = createBot({
     token: "1:TEST",
@@ -89,11 +92,16 @@ beforeEach(() => {
     instances,
   });
   bot = built.bot;
+  bridge = built.bridge;
   // Stub the Telegram API: capture calls, return plausible results.
   bot.api.config.use(async (_prev, method, payload) => {
     outgoing.push({ method, payload });
+    if (method === "sendDocument" && uploadFailuresRemaining > 0) {
+      uploadFailuresRemaining--;
+      throw new Error("request to api.telegram.org failed, reason: write ECONNRESET");
+    }
     if (method === "getFile") return { ok: true, result: { file_id: "f", file_unique_id: "u", file_path: "x" } } as any;
-    return { ok: true, result: true } as any;
+    return { ok: true, result: { message_id: 1 } } as any;
   });
 });
 
@@ -176,6 +184,47 @@ describe("replying to a foreign session (FR-19 two-way)", () => {
     expect(turns).toHaveLength(1);
     afterEachCleanup();
   });
+});
+
+describe("blocked file sends are diagnosable", () => {
+  it("names the offending path so you know what to allow", async () => {
+    const outside = path.join(dir, "outside", "kael.png");
+    await bridge.sendFile({ chatId: OWNER }, outside);
+    const res = await bridge.sendFile({ chatId: OWNER }, outside);
+    const text = sent("sendMessage").at(-1)!.payload.text;
+    expect(text).toContain(outside);        // the path, not just a generic error
+    expect(text).toMatch(/config add/);     // and how to fix it
+    // And the caller is told it FAILED - never a false "sent".
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(outside);
+    afterEachCleanup();
+  });
+
+  it("still sends a file that is inside the allowlist", async () => {
+    const res = await bridge.sendFile({ chatId: OWNER }, path.join(allowed, "readme.txt"));
+    expect(res.ok).toBe(true);
+    expect(sent("sendDocument")).toHaveLength(1);
+    afterEachCleanup();
+  });
+});
+
+describe("uploads survive a stale keep-alive socket", () => {
+  it("retries a write ECONNRESET and succeeds", async () => {
+    uploadFailuresRemaining = 1; // first attempt dies mid-upload
+    const res = await bridge.sendFile({ chatId: OWNER }, path.join(allowed, "readme.txt"));
+    expect(res.ok).toBe(true);
+    expect(sent("sendDocument")).toHaveLength(2); // failed once, then succeeded
+    afterEachCleanup();
+  }, 10_000);
+
+  it("gives up after repeated failures and reports it, never a false success", async () => {
+    uploadFailuresRemaining = 99;
+    const res = await bridge.sendFile({ chatId: OWNER }, path.join(allowed, "readme.txt"));
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/upload failed/i);
+    expect(sent("sendDocument")).toHaveLength(3); // bounded retries
+    afterEachCleanup();
+  }, 15_000);
 });
 
 describe("bot (offline integration)", () => {

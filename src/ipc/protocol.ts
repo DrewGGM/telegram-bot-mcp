@@ -30,7 +30,16 @@ export interface AskUserReply {
 export interface TelegramBridge {
   /** Returns the delivered Telegram message id, so replies can be routed back. */
   sendMessage(target: BridgeTarget, text: string): Promise<number | undefined>;
-  sendFile(target: BridgeTarget, filePath: string, caption?: string): Promise<number | undefined>;
+  /**
+   * Delivering a file can legitimately fail (outside the allowlist, too large).
+   * Report that instead of a bare id, so the agent is never told "sent" when the
+   * daemon refused it.
+   */
+  sendFile(
+    target: BridgeTarget,
+    filePath: string,
+    caption?: string,
+  ): Promise<{ ok: boolean; messageId?: number; error?: string }>;
   askUser(target: BridgeTarget, question: string, options: string[]): Promise<string>;
 }
 

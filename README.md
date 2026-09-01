@@ -61,6 +61,13 @@ Telegram ⇄ (long polling, no open ports) ⇄ ┌──────── daemo
 | `bot/` | grammY wiring: auth, commands, routing, rate limiting, pending questions. |
 | `audit/` | Append-only JSONL audit trail. |
 
+**Sending files reliably.** Uploads retry on transient socket failures. grammY keeps HTTP
+connections alive and the long-polling loop leaves idle sockets behind; when Telegram has
+already closed one, reusing it surfaces as `write ECONNRESET` part-way through the body.
+Small API calls rarely hit it, multi-hundred-KB uploads hit it reliably. A blocked or failed
+send now reports `ok: false` with the offending path to the agent and to you — it is never
+reported as sent.
+
 ---
 
 ## Security model (deny by default)

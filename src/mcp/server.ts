@@ -120,7 +120,14 @@ export function buildBridgeServer(): McpServer {
       },
     },
     async ({ path, caption }) => {
-      await callDaemon("/send_file", { path, caption, instanceId });
+      const out = await callDaemon("/send_file", { path, caption, instanceId });
+      if (out.ok === false) {
+        // Tell the truth: the daemon refused, so do not claim it was sent.
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Could not send ${path}: ${out.error ?? "refused by the daemon"}` }],
+        };
+      }
       return { content: [{ type: "text", text: `File sent: ${path}` }] };
     },
   );
