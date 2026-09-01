@@ -61,7 +61,16 @@ Telegram ⇄ (long polling, no open ports) ⇄ ┌──────── daemo
 | `bot/` | grammY wiring: auth, commands, routing, rate limiting, pending questions. |
 | `audit/` | Append-only JSONL audit trail. |
 
-**Sending files reliably.** Uploads retry on transient socket failures. grammY keeps HTTP
+**Files over 50 MB** (FR-13). Telegram's bot API caps uploads at 50 MB. Rather than refusing,
+the daemon prepares the file: **video is re-encoded** with ffmpeg (h264_nvenc when a GPU is
+present) to fit under the limit — a compressed video is still watchable on a phone, whereas
+half a video is useless — and **anything else is split** into parts with a `copy /b` line to
+rejoin them. The original is left untouched and its path is quoted in the message.
+
+**Sending files reliably.** grammY is configured with `keepAlive: false`. Reusing a
+keep-alive socket that Telegram had already closed killed large uploads with
+`write ECONNRESET` — small calls slipped through, 45 MB uploads failed every time.
+Uploads additionally retry on transient socket failures. grammY keeps HTTP
 connections alive and the long-polling loop leaves idle sockets behind; when Telegram has
 already closed one, reusing it surfaces as `write ECONNRESET` part-way through the body.
 Small API calls rarely hit it, multi-hundred-KB uploads hit it reliably. A blocked or failed

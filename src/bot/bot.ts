@@ -1,6 +1,7 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import path from "node:path";
+import { Agent } from "node:https";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import { type Config, type SessionMode, saveConfig } from "../config/config.js";
@@ -29,7 +30,8 @@ import {
   TELEGRAM_RECEIVE_LIMIT,
 } from "../files/files.js";
 import { isPathAllowed } from "../security/paths.js";
-import { writeFileSync } from "node:fs";
+import { prepareOversize } from "../files/oversize.js";
+import { writeFileSync, rmSync } from "node:fs";
 import type { BridgeTarget, TelegramBridge } from "../ipc/protocol.js";
 import type { InstanceRegistry } from "../ipc/instances.js";
 import { audit } from "../audit/audit.js";
@@ -56,7 +58,13 @@ export interface BotDeps {
  */
 export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   const { getConfig, setConfig, store, manager, pending } = deps;
-  const bot = new Bot(deps.token, deps.botInfo ? { botInfo: deps.botInfo } : {});
+  // Large uploads died with `write ECONNRESET`: grammY reuses keep-alive sockets
+  // and the long-polling loop leaves idle ones behind, which Telegram closes.
+  // A fresh connection per request costs a handshake and makes big files work.
+  const bot = new Bot(deps.token, {
+    ...(deps.botInfo ? { botInfo: deps.botInfo } : {}),
+    client: { baseFetchConfig: { agent: new Agent({ keepAlive: false }) } },
+  });
   const rate = new RateLimiter(getConfig().rateLimitPerMinute);
 
   // ---- low-level send helpers -------------------------------------------------
@@ -102,6 +110,48 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       }
     }
     throw lastErr;
+  }
+
+
+  /**
+   * Deliver a file that is over Telegram's upload limit (FR-13). Video is
+   * re-encoded to fit - a compressed video is still watchable on a phone,
+   * whereas half a video is useless - and anything else is split into parts.
+   * Derivatives come from an already-validated source, so they are not
+   * re-checked against the allowlist.
+   */
+  async function deliverOversize(
+    target: BridgeTarget,
+    filePath: string,
+    size: number,
+    caption?: string,
+  ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+    await send(target, `📦 ${humanSize(size)} exceeds Telegram's 50 MB limit. Preparing it...`);
+    const plan = await prepareOversize(filePath, TELEGRAM_SEND_LIMIT);
+    if (plan.kind === "failed" || plan.files.length === 0) {
+      await send(target, `⚠️ ${plan.note}`);
+      return { ok: false, error: plan.note };
+    }
+    await send(target, plan.note);
+    try {
+      let lastId: number | undefined;
+      for (const [i, part] of plan.files.entries()) {
+        const label =
+          plan.files.length > 1 ? `${path.basename(part)} (${i + 1}/${plan.files.length})` : caption;
+        const sentPart = await sendDocumentRetrying(target.chatId, part, {
+          ...(label ? { caption: label } : {}),
+          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
+        });
+        lastId = sentPart.message_id;
+      }
+      audit({ kind: "file.sent", path: filePath, bytes: size });
+      return { ok: true, ...(lastId !== undefined ? { messageId: lastId } : {}) };
+    } catch (err) {
+      await send(target, `⚠️ Upload failed: ${String(err)}`);
+      return { ok: false, error: String(err) };
+    } finally {
+      if (plan.cleanupDir) rmSync(plan.cleanupDir, { recursive: true, force: true });
+    }
   }
 
   async function typing(target: BridgeTarget): Promise<void> {
@@ -479,7 +529,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       return;
     }
     if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-      await ctx.reply(`⚠️ File is ${humanSize(res.value!.size)}, over Telegram's 50 MB limit. Compress or split it first.`);
+      await deliverOversize({ chatId: ctx.chat.id }, res.value!.path, res.value!.size);
       return;
     }
     await ctx.replyWithChatAction("upload_document");
@@ -644,9 +694,7 @@ Allow it with: /config add <folder>`,
         return { ok: false, error: `${res.error}: ${filePath}` };
       }
       if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-        const error = `file too large (${humanSize(res.value!.size)}, limit 50 MB)`;
-        await send(target, `⚠️ ${error}: ${filePath}`);
-        return { ok: false, error };
+        return deliverOversize(target, res.value!.path, res.value!.size, caption);
       }
       try {
         const sent = await sendDocumentRetrying(target.chatId, res.value!.path, {
