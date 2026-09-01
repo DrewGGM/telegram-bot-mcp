@@ -61,11 +61,25 @@ Telegram ⇄ (long polling, no open ports) ⇄ ┌──────── daemo
 | `bot/` | grammY wiring: auth, commands, routing, rate limiting, pending questions. |
 | `audit/` | Append-only JSONL audit trail. |
 
-**Files over 50 MB** (FR-13). Telegram's bot API caps uploads at 50 MB. Rather than refusing,
-the daemon prepares the file: **video is re-encoded** with ffmpeg (h264_nvenc when a GPU is
-present) to fit under the limit — a compressed video is still watchable on a phone, whereas
-half a video is useless — and **anything else is split** into parts with a `copy /b` line to
-rejoin them. The original is left untouched and its path is quoted in the message.
+**Files over 50 MB.** The cloud Bot API caps bot uploads at 50 MB. The daemon handles this in
+two tiers, best first:
+
+1. **Local Bot API server (preferred, up to 2000 MB).** Telegram publishes its Bot API server
+   as software you can run yourself; doing so raises the send limit to 2000 MB and removes the
+   download limit. The daemon uploads the file **untouched** over loopback and the server
+   handles the transfer to Telegram. A 75 MB video goes out in ~27 s with no quality loss,
+   versus ~150 s re-encoded.
+2. **Compress or split (fallback, FR-13).** When the local server is not running, video is
+   re-encoded with ffmpeg (h264_nvenc when a GPU is present) to fit under 50 MB — a compressed
+   video is still watchable on a phone, whereas half a video is useless — and anything else is
+   split into parts with a `copy /b` line to rejoin them. The original file is never modified
+   and its path is quoted in the message.
+
+The local server is used **only as a side channel for oversize uploads**. grammY keeps polling
+the cloud API, so the bot needs no `logOut` and keeps working normally when Docker is stopped —
+it just degrades to tier 2. Pointing `apiRoot` at the local server wholesale would move
+`getUpdates` there too, require `logOut`, and make Docker a hard dependency for the bot to work
+at all; that trade was deliberately refused.
 
 **Sending files reliably.** grammY is configured with `keepAlive: false`. Reusing a
 keep-alive socket that Telegram had already closed killed large uploads with
@@ -106,6 +120,28 @@ The hooks fire under **all** modes — `full` is "auto-approve within the guardr
 ### Prerequisites
 - Windows 11, Node.js ≥ 22.5
 - The `claude` CLI installed and logged in (`claude` runs with your subscription)
+
+### Quick start (one command)
+
+```powershell
+git clone https://github.com/DrewGGM/telegram-bot-mcp
+cd telegram-bot-mcp
+pwsh -File scripts/setup.ps1
+```
+
+It checks prerequisites, installs and builds, brings up the optional local Bot
+API server, installs auto-start at logon, registers the bridge for every Claude
+Code session, and starts the daemon. It is idempotent — re-run it any time.
+On the first run it creates `.env` and stops so you can paste your bot token.
+
+Then open a private chat with your bot and send `/start` to claim ownership.
+
+Flags: `-SkipLocalApi` (no 2 GB uploads), `-SkipGlobalMcp` (do not touch your
+Claude Code config).
+
+---
+
+## Manual setup, step by step
 
 ### 1. Create the bot
 1. In Telegram, message [@BotFather](https://t.me/BotFather) → `/newbot` → get the token.
@@ -172,6 +208,31 @@ For the agent side, the bridge exposes:
 > (`wait_for_reply` / `telegram_wait_reply`). If it already finished its turn and is idle at
 > its own terminal, your reply is delivered to its inbox but nothing reads it — the bot tells
 > you when the session is gone entirely. Agents that want a conversation must wait for it.
+
+### 5c. (Optional) Local Bot API server — send files up to 2 GB untouched
+
+Without it, files over 50 MB are compressed or split. With it, they go as-is.
+
+1. Get `api_id` and `api_hash` at [my.telegram.org](https://my.telegram.org) and put them in
+   `.env` as `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`.
+2. Install Docker Desktop and start it.
+3. Run `pwsh -File scripts/setup.ps1`, or the container directly:
+
+```powershell
+docker run -d --name telegram-bot-api --restart unless-stopped `
+  -p 127.0.0.1:8081:8081 `
+  -e TELEGRAM_API_ID=<id> -e TELEGRAM_API_HASH=<hash> `
+  -v tbapi-data:/var/lib/telegram-bot-api `
+  aiogram/telegram-bot-api:latest
+```
+
+Bound to `127.0.0.1` only — nothing is exposed to the network. Inspect it with
+`docker logs telegram-bot-api`. The daemon probes it before every oversize send and silently
+falls back to compressing when it is down.
+
+> **Why not Telegram Premium?** Premium raises the limit for *user* accounts to 4 GB. Bots do
+> not benefit — the Bot API stays at 50 MB regardless. Running your own server is the only way
+> to lift a bot's limit.
 
 ### 6. Auto-start on logon (Windows)
 ```powershell

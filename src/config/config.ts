@@ -32,6 +32,12 @@ const ConfigSchema = z.object({
    * working across daemon restarts. Still 127.0.0.1-only.
    */
   ipcPort: z.number().int().min(1024).max(65535).default(8765),
+  /**
+   * Local Bot API server used only to send files above the cloud's 50 MB limit
+   * (up to 2000 MB). Probed at startup; when it is not running the daemon falls
+   * back to compressing/splitting, so this is never a hard dependency.
+   */
+  localApiRoot: z.string().default("http://127.0.0.1:8081"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

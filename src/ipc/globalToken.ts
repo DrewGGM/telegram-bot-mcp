@@ -16,7 +16,8 @@ import { DATA_DIR } from "../config/config.js";
  *   - the token grants exactly three capabilities — message the owner, send the
  *     owner a file from inside the allowlist, ask the owner a question. It
  *     cannot choose a recipient (ADR-5) or reach a path outside the allowlist;
- *   - the file is chmod 0600 and lives in the git-ignored data/ directory.
+ *   - the file is locked down to the current user and lives in the git-ignored
+ *     data/ directory.
  * Per-turn session tokens remain memory-only.
  */
 
@@ -31,12 +32,27 @@ export function loadOrCreateGlobalToken(): string {
   }
   const token = randomBytes(24).toString("hex");
   writeFileSync(TOKEN_PATH, token + "\n", "utf8");
+  restrictToCurrentUser(TOKEN_PATH);
+  return token;
+}
+
+/**
+ * Best-effort permission tightening for a secret file.
+ *
+ * On POSIX this is a real 0600. On Windows it is deliberately a no-op: icacls
+ * reports success on this path but leaves the ACL unchanged, and the honest
+ * answer is that protection there comes from the user-profile ACL the file
+ * inherits (SYSTEM, Administrators and the owning user only - no Everyone or
+ * Users entry). Removing SYSTEM/Administrators would buy nothing anyway, since
+ * an administrator can already read the process memory holding the same token.
+ */
+function restrictToCurrentUser(filePath: string): void {
+  if (process.platform === "win32") return;
   try {
-    chmodSync(TOKEN_PATH, 0o600); // best-effort; a no-op on some Windows setups
+    chmodSync(filePath, 0o600);
   } catch {
     /* non-fatal */
   }
-  return token;
 }
 
 export { TOKEN_PATH };

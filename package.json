@@ -23,7 +23,8 @@
     "smoke:mcp": "node scripts/smoke-mcp-live.mjs",
     "register:global": "node scripts/register-global-mcp.mjs",
     "smoke:global": "node scripts/smoke-global-bridge.mjs",
-    "smoke:reply": "node scripts/smoke-reply.mjs"
+    "smoke:reply": "node scripts/smoke-reply.mjs",
+    "setup": "pwsh -File scripts/setup.ps1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

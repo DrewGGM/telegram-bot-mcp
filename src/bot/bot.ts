@@ -3,7 +3,7 @@ import type { UserFromGetMe } from "grammy/types";
 import path from "node:path";
 import { Agent } from "node:https";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { type Config, type SessionMode, saveConfig } from "../config/config.js";
 import type { SessionStore, Session } from "../sessions/store.js";
 import type { TurnCallbacks } from "../sessions/manager.js";
@@ -31,6 +31,7 @@ import {
 } from "../files/files.js";
 import { isPathAllowed } from "../security/paths.js";
 import { prepareOversize } from "../files/oversize.js";
+import { probeLocalServer, uploadViaLocalServer, LOCAL_SEND_LIMIT } from "../files/localupload.js";
 import { writeFileSync, rmSync } from "node:fs";
 import type { BridgeTarget, TelegramBridge } from "../ipc/protocol.js";
 import type { InstanceRegistry } from "../ipc/instances.js";
@@ -126,6 +127,23 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     size: number,
     caption?: string,
   ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+    // Preferred route: a local Bot API server lifts the limit to 2000 MB, so the
+    // file goes out untouched. Only if it is unavailable do we degrade to
+    // compressing or splitting.
+    const apiRoot = getConfig().localApiRoot;
+    if (size <= LOCAL_SEND_LIMIT && (await probeLocalServer(apiRoot, deps.token))) {
+      await send(target, `📦 ${humanSize(size)} - sending in full via the local Bot API server...`);
+      const up = await uploadViaLocalServer(apiRoot, deps.token, target.chatId, filePath, {
+        ...(caption ? { caption } : {}),
+        ...(target.topicId !== undefined ? { topicId: target.topicId } : {}),
+      });
+      if (up.ok) {
+        audit({ kind: "file.sent", path: filePath, bytes: size });
+        return { ok: true, ...(up.messageId !== undefined ? { messageId: up.messageId } : {}) };
+      }
+      log.warn({ filePath, err: up.error }, "local Bot API upload failed, falling back to compression");
+    }
+
     await send(target, `📦 ${humanSize(size)} exceeds Telegram's 50 MB limit. Preparing it...`);
     const plan = await prepareOversize(filePath, TELEGRAM_SEND_LIMIT);
     if (plan.kind === "failed" || plan.files.length === 0) {
@@ -542,8 +560,11 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const [sub, ...rest] = ctx.match.trim().split(/\s+/).filter(Boolean);
     const value = rest.join(" ");
     if (sub === "add" && value) {
-      const check = isPathAllowed(value, [path.parse(value).root || value]); // sanity: absolute
-      if (!path.isAbsolute(value) || !existsSync(value) || !check) {
+      // Must be an absolute path to a real DIRECTORY. The previous version also
+      // tested `!check` on an object, which is always false: it never fired, so a
+      // plain file could be added to the allowlist as if it were a folder.
+      const isDir = existsSync(value) && statSync(value).isDirectory();
+      if (!path.isAbsolute(value) || !isDir) {
         await ctx.reply("Provide an absolute path to an existing folder: /config add C:\\Users\\me\\Docs");
         return;
       }

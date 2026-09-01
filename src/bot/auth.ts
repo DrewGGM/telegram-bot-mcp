@@ -43,10 +43,24 @@ export function decideAuth(id: Identity, ctx: Pick<Config, "ownerId" | "groupId"
 }
 
 /**
+ * Is this update one of the only two things an UNCLAIMED bot may answer?
+ *
+ * Before an owner exists we cannot authenticate anybody, so the bootstrap
+ * window must expose nothing but the ownership handshake. Anything else - /ls,
+ * /find, /get, /config - would let whoever finds the bot first read and
+ * exfiltrate files from the allowlist.
+ */
+function isOwnershipHandshake(ctx: Context): boolean {
+  const text = ctx.message?.text ?? "";
+  if (/^\/start(@\w+)?(\s|$)/.test(text)) return true;
+  return ctx.callbackQuery?.data?.startsWith("claim:") === true;
+}
+
+/**
  * grammY middleware enforcing {@link decideAuth}. Must be registered FIRST so no
- * downstream handler ever sees an unauthorized update. In `bootstrap` mode it
- * lets updates through (the /start handler gates itself to reveal the id); a
- * `drop` is completely silent.
+ * downstream handler ever sees an unauthorized update. A `drop` is completely
+ * silent, and `bootstrap` is narrowed to the ownership handshake alone, so a new
+ * command can never accidentally be reachable before the bot has an owner.
  */
 export function authMiddleware(getConfig: () => Config): MiddlewareFn<Context> {
   return async (ctx, next) => {
@@ -60,7 +74,11 @@ export function authMiddleware(getConfig: () => Config): MiddlewareFn<Context> {
       log.warn({ userId, chatId }, "dropped unauthorized update");
       return; // silent
     }
-    // `allow` and `bootstrap` both proceed; handlers behave per config.ownerId.
+    if (decision === "bootstrap" && !isOwnershipHandshake(ctx)) {
+      audit({ kind: "auth.denied", userId, chatId });
+      log.warn({ userId, chatId }, "dropped non-handshake update on an unclaimed bot");
+      return; // silent
+    }
     return next();
   };
 }

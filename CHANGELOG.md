@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.2.0] — 2026-09-01
+
+### Added
+- **Local Bot API server support.** Files up to 2000 MB are sent **untouched**
+  instead of being compressed: a 75 MB video goes out in ~27 s with no quality
+  loss versus ~150 s re-encoded. Used only as a side channel for oversize
+  uploads, so the bot needs no `logOut` and degrades to compression when Docker
+  is stopped — verified by stopping the container mid-test.
+- **Oversize handling (FR-13, previously unimplemented).** Video is re-encoded
+  with ffmpeg/h264_nvenc to fit; anything else is split with a `copy /b` rejoin
+  line. The original is never modified.
+- **Two-way replies to registered sessions (FR-19).** Swipe-reply to a message
+  and it returns to the session that sent it; `telegram_wait_reply` and
+  `wait_for_reply` let an agent block for your answer.
+- **`scripts/setup.ps1`** — idempotent one-command install: prerequisites,
+  build, local Bot API server, auto-start, global MCP registration, launch.
+- **Startup-folder auto-start fallback** for machines where Scheduled Task
+  registration needs elevation, with a supervisor loop that restarts on failure.
+
+### Fixed
+- **SECURITY (high): an unclaimed bot served any stranger.** Before ownership was
+  claimed, `/ls`, `/find`, `/get` and `/config` were reachable by anyone who
+  found the bot — including file exfiltration via `/get`. The bootstrap window is
+  now limited, in the middleware, to `/start` and the claim callback. See
+  `docs/SECURITY-AUDIT.md`.
+- **Large uploads always failed** with `write ECONNRESET`: grammY reused
+  keep-alive sockets the server had closed. Now `keepAlive: false`, plus retries.
+- **False success on blocked sends.** `telegram_send_file` reported "File sent"
+  even when the daemon refused the file; failures now propagate as `isError`.
+- Blocked sends name the offending path and are recorded in the audit log.
+- The daemon no longer dies when the network is unavailable at logon; the
+  Telegram handshake and command-menu publication retry with backoff.
+- `/config add` accepted a file as a folder and had a dead validation clause.
+- Misleading `chmod 0600` claim on Windows replaced with an accurate one.
+
 All notable changes to this project are documented here. This repository doubles
 as the public build report — each milestone from the design blueprint is landed
 and validated below.
