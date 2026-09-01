@@ -22,7 +22,8 @@
     "check": "npm run typecheck && npm run test",
     "smoke:mcp": "node scripts/smoke-mcp-live.mjs",
     "register:global": "node scripts/register-global-mcp.mjs",
-    "smoke:global": "node scripts/smoke-global-bridge.mjs"
+    "smoke:global": "node scripts/smoke-global-bridge.mjs",
+    "smoke:reply": "node scripts/smoke-reply.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

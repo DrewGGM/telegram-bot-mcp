@@ -42,6 +42,7 @@ Do this once after setup. Each maps to a functional requirement.
 
 | Check | Command | Proves |
 |---|---|---|
+| Two-way reply, live | `npm run smoke:reply` | A foreign session sends a message, you swipe-reply in Telegram, and the reply returns to THAT session (verified manually: replied "Holis", the session received it). |
 | Desktop bridge, live | `npm run smoke:global` | With the daemon running, a bridge subprocess started **outside** the daemon (persisted token + fixed port) delivers a real Telegram message to the owner. |
 
 - ✅ Verified: `claude mcp list` shows `telegram-bridge — ✔ Connected` at **User config** scope, and a message sent through it arrived on Telegram.

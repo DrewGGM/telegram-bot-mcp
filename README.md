@@ -138,6 +138,25 @@ bot yet, calls are refused rather than misrouted.
 > tokens stay memory-only. The token is useless remotely (loopback only) and
 > still cannot choose a recipient or escape the folder allowlist.
 
+### 5b. Replying to a registered session (two-way)
+
+A registered session's messages are prefixed with its label, e.g. `[fineract] build finished`.
+**Swipe/long-press that message in Telegram and reply** — your answer goes back to *that*
+session, not to the default chat session. `/sessions` lists which sessions are connected
+and which are waiting on you.
+
+For the agent side, the bridge exposes:
+
+- `telegram_send_message(text, wait_for_reply: true)` — send, then block for your answer.
+- `telegram_wait_reply(timeout_seconds)` — block until you reply (poll for instructions
+  during long work).
+
+> **Protocol limit, worth knowing.** MCP is request/response: the daemon cannot push into a
+> running agent's loop. A session only receives your reply while it is *asking* for one
+> (`wait_for_reply` / `telegram_wait_reply`). If it already finished its turn and is idle at
+> its own terminal, your reply is delivered to its inbox but nothing reads it — the bot tells
+> you when the session is gone entirely. Agents that want a conversation must wait for it.
+
 ### 6. Auto-start on logon (Windows)
 ```powershell
 pwsh -File scripts/install-windows.ps1     # registers a Scheduled Task

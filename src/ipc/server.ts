@@ -2,6 +2,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { randomBytes } from "node:crypto";
 import type { BridgeTarget, TelegramBridge } from "./protocol.js";
 import { IPC_TOKEN_HEADER } from "./protocol.js";
+import { InstanceRegistry } from "./instances.js";
 import { audit } from "../audit/audit.js";
 import { log } from "../logger.js";
 
@@ -28,6 +29,8 @@ export class IpcServer {
   private server: Server;
   private readonly tokens = new Map<string, Registered>();
   private boundPort = 0;
+  /** Foreign sessions reached through the desktop registration (FR-19). */
+  readonly instances = new InstanceRegistry();
 
   constructor(private readonly bridge: TelegramBridge) {
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -115,18 +118,40 @@ export class IpcServer {
       const body = await readJson(req);
       const route = req.url ?? "";
 
+      // A foreign session identifies itself so replies can find their way back.
+      // The id is minted here, never supplied by the caller on /register.
+      if (route === "/register") {
+        const instance = this.instances.register(String(body.label ?? ""), String(body.cwd ?? ""));
+        log.info({ instanceId: instance.id, label: instance.label }, "foreign session registered");
+        return json(res, 200, { instanceId: instance.id, label: instance.label });
+      }
+
+      const instanceId = typeof body.instanceId === "string" ? body.instanceId : undefined;
+      const instance = instanceId ? this.instances.get(instanceId) : undefined;
+      // Prefix messages from foreign sessions so you can tell who is talking.
+      const label = instance ? `[${instance.label}] ` : "";
+
       if (route === "/send_message") {
-        await this.bridge.sendMessage(target, String(body.text ?? ""));
-        return json(res, 200, { ok: true });
+        const messageId = await this.bridge.sendMessage(target, label + String(body.text ?? ""));
+        if (instance && messageId !== undefined) this.instances.claimMessage(messageId, instance.id);
+        return json(res, 200, { ok: true, messageId });
       }
       if (route === "/send_file") {
-        await this.bridge.sendFile(target, String(body.path ?? ""), body.caption ? String(body.caption) : undefined);
-        return json(res, 200, { ok: true });
+        const caption = body.caption ? label + String(body.caption) : label || undefined;
+        const messageId = await this.bridge.sendFile(target, String(body.path ?? ""), caption);
+        if (instance && messageId !== undefined) this.instances.claimMessage(messageId, instance.id);
+        return json(res, 200, { ok: true, messageId });
       }
       if (route === "/ask_user") {
         const options = Array.isArray(body.options) ? body.options.map(String) : [];
-        const answer = await this.bridge.askUser(target, String(body.question ?? ""), options);
+        const answer = await this.bridge.askUser(target, label + String(body.question ?? ""), options);
         return json(res, 200, { answer });
+      }
+      if (route === "/wait_reply") {
+        if (!instance) return json(res, 400, { error: "unknown or expired instanceId" });
+        const timeoutMs = Math.min(Math.max(Number(body.timeoutMs) || 300_000, 1_000), 30 * 60_000);
+        const reply = await this.instances.waitForReply(instance.id, timeoutMs);
+        return json(res, 200, { reply: reply ?? null, timedOut: reply === undefined });
       }
       return json(res, 404, { error: "unknown route" });
     } catch (err) {

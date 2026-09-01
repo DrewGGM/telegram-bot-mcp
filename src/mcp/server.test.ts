@@ -61,10 +61,15 @@ afterAll(async () => {
 });
 
 describe("telegram-bridge MCP server", () => {
-  it("exposes the three bridge tools", async () => {
+  it("exposes the four bridge tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["telegram_ask_user", "telegram_send_file", "telegram_send_message"]);
+    expect(names).toEqual([
+      "telegram_ask_user",
+      "telegram_send_file",
+      "telegram_send_message",
+      "telegram_wait_reply",
+    ]);
   });
 
   it("send_message reaches the daemon at the token's fixed destination", async () => {
@@ -73,7 +78,9 @@ describe("telegram-bridge MCP server", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].kind).toBe("message");
     expect(calls[0].target).toEqual({ chatId: 123, topicId: 9 });
-    expect(calls[0].payload).toBe("hi from agent");
+    // The daemon prefixes a foreign session's messages with its label, so you
+    // can tell which project is talking and swipe-reply to that one.
+    expect(calls[0].payload).toMatch(/^\[.+\] hi from agent$/);
   });
 
   it("ask_user returns the owner's answer to the agent", async () => {

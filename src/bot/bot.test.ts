@@ -6,6 +6,7 @@ import type { Bot } from "grammy";
 import { createBot, type ManagerLike } from "./bot.js";
 import { PendingQuestions } from "./pending.js";
 import { SessionStore } from "../sessions/store.js";
+import { InstanceRegistry } from "../ipc/instances.js";
 import type { Config } from "../config/config.js";
 import type { Session } from "../sessions/store.js";
 
@@ -36,6 +37,7 @@ let store: SessionStore;
 let outgoing: { method: string; payload: any }[];
 let bot: Bot;
 let turns: { session: Session; prompt: string }[];
+let instances: InstanceRegistry;
 
 function baseConfig(): Config {
   return {
@@ -73,6 +75,7 @@ beforeEach(() => {
   store = new SessionStore(path.join(dir, "sessions.json"));
   outgoing = [];
   turns = [];
+  instances = new InstanceRegistry();
 
   const built = createBot({
     token: "1:TEST",
@@ -83,6 +86,7 @@ beforeEach(() => {
     pending: new PendingQuestions(),
     startedAt: Date.now(),
     botInfo: BOT_INFO,
+    instances,
   });
   bot = built.bot;
   // Stub the Telegram API: capture calls, return plausible results.
@@ -114,6 +118,65 @@ function messageUpdate(text: string, fromId: number, chatId = fromId): any {
 function sent(method: string) {
   return outgoing.filter((o) => o.method === method);
 }
+
+function replyUpdate(text: string, replyToMessageId: number, fromId = OWNER): any {
+  const u = messageUpdate(text, fromId);
+  u.message.reply_to_message = {
+    message_id: replyToMessageId,
+    date: Math.floor(Date.now() / 1000),
+    chat: { id: fromId, type: "private" },
+    text: "earlier bot message",
+  };
+  return u;
+}
+
+describe("replying to a foreign session (FR-19 two-way)", () => {
+  it("routes a swipe-reply to the session that sent that message", async () => {
+    const inst = instances.register("fineract", "C:\proj\fineract");
+    instances.claimMessage(500, inst.id);
+
+    await bot.handleUpdate(replyUpdate("dale, continua", 500));
+
+    // Delivered to that session's inbox...
+    await expect(instances.waitForReply(inst.id, 50)).resolves.toBe("dale, continua");
+    // ...and it did NOT start a Claude turn in the default session.
+    expect(turns).toHaveLength(0);
+    expect(sent("sendMessage").at(-1)!.payload.text).toContain("fineract");
+    afterEachCleanup();
+  });
+
+  it("keeps two foreign sessions separate", async () => {
+    const a = instances.register("proj-a", "/a");
+    const b = instances.register("proj-b", "/b");
+    instances.claimMessage(601, a.id);
+    instances.claimMessage(602, b.id);
+
+    await bot.handleUpdate(replyUpdate("para A", 601));
+    await bot.handleUpdate(replyUpdate("para B", 602));
+
+    await expect(instances.waitForReply(a.id, 50)).resolves.toBe("para A");
+    await expect(instances.waitForReply(b.id, 50)).resolves.toBe("para B");
+    afterEachCleanup();
+  });
+
+  it("tells you when the session has already exited", async () => {
+    const gone = instances.register("gone", "/g");
+    instances.claimMessage(700, gone.id);
+    instances.prune(0, Date.now() + 10_000); // session goes away
+    await bot.handleUpdate(replyUpdate("hola?", 700));
+    expect(sent("sendMessage").at(-1)!.payload.text).toMatch(/no longer running/);
+    expect(turns).toHaveLength(0); // and it must NOT fall through to a new turn
+    afterEachCleanup();
+  });
+
+  it("a normal (non-reply) message still runs the default session", async () => {
+    const inst = instances.register("x", "/x");
+    instances.claimMessage(800, inst.id);
+    await bot.handleUpdate(messageUpdate("mensaje normal", OWNER));
+    expect(turns).toHaveLength(1);
+    afterEachCleanup();
+  });
+});
 
 describe("bot (offline integration)", () => {
   it("drops updates from a non-owner with NO reply (FR-1)", async () => {

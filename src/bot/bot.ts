@@ -31,6 +31,7 @@ import {
 import { isPathAllowed } from "../security/paths.js";
 import { writeFileSync } from "node:fs";
 import type { BridgeTarget, TelegramBridge } from "../ipc/protocol.js";
+import type { InstanceRegistry } from "../ipc/instances.js";
 import { audit } from "../audit/audit.js";
 import { log } from "../logger.js";
 
@@ -42,6 +43,8 @@ export interface BotDeps {
   manager: ManagerLike;
   pending: PendingQuestions;
   startedAt: number;
+  /** Live foreign sessions (desktop registration), for reply routing. */
+  instances?: InstanceRegistry;
   /** Preset bot identity to skip the getMe call (used in offline tests). */
   botInfo?: UserFromGetMe;
 }
@@ -58,12 +61,16 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   // ---- low-level send helpers -------------------------------------------------
 
-  async function send(target: BridgeTarget, text: string): Promise<void> {
+  /** Send (chunked) and return the id of the LAST part — the one you'd reply to. */
+  async function send(target: BridgeTarget, text: string): Promise<number | undefined> {
+    let lastId: number | undefined;
     for (const part of chunkMessage(text)) {
-      await bot.api.sendMessage(target.chatId, part, {
+      const sent = await bot.api.sendMessage(target.chatId, part, {
         ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
       });
+      lastId = sent.message_id;
     }
+    return lastId;
   }
 
   async function typing(target: BridgeTarget): Promise<void> {
@@ -334,15 +341,35 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   bot.command("sessions", async (ctx) => {
     const list = store.list();
-    if (!list.length) {
-      await ctx.reply("No sessions. Use /new in the sessions group.");
-      return;
+    const foreign = deps.instances?.list() ?? [];
+    const parts: string[] = [];
+
+    if (list.length) {
+      parts.push(
+        "🗂 Bridge sessions:\n" +
+          list
+            .map(
+              (s) =>
+                `${s.id} · ${s.cwd}\n   ${s.model}/${s.mode} · ${s.state}${s.isDefault ? " · default" : ""}`,
+            )
+            .join("\n"),
+      );
     }
-    await ctx.reply(
-      list
-        .map((s) => `${s.id} · ${s.cwd}\n   ${s.model}/${s.mode} · ${s.state}${s.isDefault ? " · default" : ""}`)
-        .join("\n"),
-    );
+    if (foreign.length) {
+      // Foreign = Claude Code sessions elsewhere on this machine that registered
+      // the bridge. You answer one by swiping on a message it sent.
+      parts.push(
+        "🖥 Connected Claude Code sessions (reply to their messages to answer):\n" +
+          foreign
+            .map((i) => {
+              const idleMin = Math.round((Date.now() - i.lastSeenAt) / 60_000);
+              const waiting = i.waiters.length > 0 ? " · ⏳ waiting for you" : "";
+              return `[${i.label}] · ${i.cwd}\n   last seen ${idleMin}m ago${waiting}`;
+            })
+            .join("\n"),
+      );
+    }
+    await ctx.reply(parts.join("\n\n") || "No sessions. Use /new in the sessions group.");
   });
 
   bot.command("kill", async (ctx) => {
@@ -520,6 +547,23 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     if (text.startsWith("/")) return; // unknown command; ignore quietly
     const cfg = getConfig();
 
+    // Replying to a message a foreign Claude Code session sent? Deliver it to
+    // that session's inbox instead of running a turn here (FR-19 two-way).
+    const repliedTo = ctx.msg.reply_to_message?.message_id;
+    if (repliedTo !== undefined && deps.instances) {
+      const origin = deps.instances.ownerOfMessage(repliedTo);
+      if (origin) {
+        const delivered = origin.alive && deps.instances.deliver(origin.id, text);
+        await ctx.reply(
+          delivered
+            ? `📨 Sent to [${origin.label}].`
+            : `⚠️ [${origin.label}] is no longer running, so it can't receive this.`,
+          { reply_to_message_id: ctx.msg.message_id },
+        );
+        return;
+      }
+    }
+
     let session: Session | undefined;
     if (ctx.msg.message_thread_id && ctx.chat.id === cfg.groupId) {
       session = store.byTopic(ctx.msg.message_thread_id);
@@ -551,23 +595,22 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   const bridge: TelegramBridge = {
     async sendMessage(target, text) {
-      await send(target, text);
+      return send(target, text);
     },
     async sendFile(target, filePath, caption) {
       const res = resolveForGet(filePath, getConfig().allowedDirs);
       if (!res.ok) {
-        await send(target, `⚠️ Agent tried to send a disallowed file: ${res.error}`);
-        return;
+        return send(target, `⚠️ Agent tried to send a disallowed file: ${res.error}`);
       }
       if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-        await send(target, `⚠️ File too large to send (${humanSize(res.value!.size)}).`);
-        return;
+        return send(target, `⚠️ File too large to send (${humanSize(res.value!.size)}).`);
       }
-      await bot.api.sendDocument(target.chatId, new InputFile(res.value!.path), {
+      const sent = await bot.api.sendDocument(target.chatId, new InputFile(res.value!.path), {
         ...(caption ? { caption } : {}),
         ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
       });
       audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
+      return sent.message_id;
     },
     async askUser(target, question, options) {
       return ask(target, question, options);

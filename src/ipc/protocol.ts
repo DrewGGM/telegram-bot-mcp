@@ -28,8 +28,9 @@ export interface AskUserReply {
 
 /** The daemon-side handlers the IPC server dispatches to. */
 export interface TelegramBridge {
-  sendMessage(target: BridgeTarget, text: string): Promise<void>;
-  sendFile(target: BridgeTarget, filePath: string, caption?: string): Promise<void>;
+  /** Returns the delivered Telegram message id, so replies can be routed back. */
+  sendMessage(target: BridgeTarget, text: string): Promise<number | undefined>;
+  sendFile(target: BridgeTarget, filePath: string, caption?: string): Promise<number | undefined>;
   askUser(target: BridgeTarget, question: string, options: string[]): Promise<string>;
 }
 

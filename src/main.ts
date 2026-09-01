@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     manager,
     pending,
     startedAt,
+    instances: ipc.instances,
   });
   bridge = realBridge;
 
@@ -70,10 +71,16 @@ async function main(): Promise<void> {
       store.update(s.id, { state: "hibernated" });
       audit({ kind: "session.hibernated", sessionId: s.id });
     }
+    // Forget foreign sessions that have gone quiet for an hour.
+    ipc.instances.prune(60 * 60_000);
   }, 60_000);
   sweep.unref?.();
 
-  await bot.api.setMyCommands([
+  // Cosmetic and best-effort: at logon the network is often not up yet, and a
+  // failure here must never stop the bridge from starting. grammY's polling
+  // reconnects on its own, so we just retry the menu in the background.
+  const publishCommands = async (): Promise<void> => {
+    await bot.api.setMyCommands([
     { command: "status", description: "Sessions, uptime, config" },
     { command: "new", description: "New session: /new <folder> [model] [mode]" },
     { command: "sessions", description: "List sessions" },
@@ -88,7 +95,9 @@ async function main(): Promise<void> {
     { command: "panic", description: "Kill everything and lock" },
     { command: "unlock", description: "Resume after /panic" },
     { command: "help", description: "Show help" },
-  ]);
+    ]);
+  };
+  void retryForever(publishCommands, "setMyCommands");
 
   const shutdown = async (sig: string): Promise<void> => {
     log.info({ sig }, "shutting down");
@@ -108,19 +117,44 @@ async function main(): Promise<void> {
     setTimeout(() => void shutdown("SMOKE"), smokeMs);
   }
 
-  const me = await bot.api.getMe();
   log.info(
-    { bot: me.username, owner: config.ownerId || "UNCLAIMED (send /start to claim)", allowed: config.allowedDirs },
+    { owner: config.ownerId || "UNCLAIMED (send /start to claim)", allowed: config.allowedDirs, ipcPort: config.ipcPort },
     "bridge starting (long polling)",
   );
 
+  // bot.init() is the getMe handshake. At logon the network is frequently not
+  // ready yet, so retry it instead of dying — this is what makes the daemon
+  // survive a reboot unattended. bot.start() then reuses the initialized state.
+  await retryForever(() => bot.init(), "telegram handshake");
+
   await bot.start({
     drop_pending_updates: true,
-    onStart: () => log.info("long polling started"),
+    onStart: (info) => log.info({ bot: info.username }, "long polling started"),
   });
 }
 
+/**
+ * Retry a non-critical startup task with backoff, forever. Used for cosmetics
+ * (the command menu) that must never prevent the bridge from coming up when the
+ * network is still settling after a reboot.
+ */
+async function retryForever(fn: () => Promise<void>, label: string): Promise<void> {
+  let delay = 5_000;
+  for (;;) {
+    try {
+      await fn();
+      log.info({ task: label }, "startup task completed");
+      return;
+    } catch (err) {
+      log.warn({ task: label, err: String(err), retryInMs: delay }, "startup task failed, will retry");
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 5 * 60_000);
+    }
+  }
+}
+
 main().catch((err) => {
+  // Exit non-zero so the supervisor (scripts/tbm-run.cmd) restarts us.
   log.error({ err }, "fatal");
   process.exit(1);
 });
