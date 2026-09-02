@@ -24,6 +24,59 @@ export interface LocalUploadResult {
   error?: string;
 }
 
+/**
+ * Availability is cached briefly: `send` consults it on every message, and a
+ * probe per message would add a round-trip to the common case. A short TTL
+ * still notices the container going up or down within seconds.
+ */
+let availability: { at: number; ok: boolean } | null = null;
+const AVAILABILITY_TTL_MS = 30_000;
+
+/** Cached {@link probeLocalServer}. Pass force to bypass the cache. */
+export async function isLocalServerUp(apiRoot: string, token: string, force = false): Promise<boolean> {
+  const now = Date.now();
+  if (!force && availability && now - availability.at < AVAILABILITY_TTL_MS) return availability.ok;
+  const ok = await probeLocalServer(apiRoot, token);
+  availability = { at: now, ok };
+  return ok;
+}
+
+/** Invalidate the cache, e.g. after a send through the local server failed. */
+export function forgetLocalServerAvailability(): void {
+  availability = null;
+}
+
+/**
+ * Send a text message through the local server.
+ *
+ * Worth doing for ordinary messages too, not just big files: on a connection
+ * where `api.telegram.org` is unreliable, the local server reaches Telegram over
+ * MTProto instead, which measured 5/5 against 3/5 for direct HTTPS.
+ */
+export async function sendMessageViaLocalServer(
+  apiRoot: string,
+  token: string,
+  chatId: number,
+  text: string,
+  topicId?: number,
+): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+  try {
+    const body = new URLSearchParams({ chat_id: String(chatId), text });
+    if (topicId !== undefined) body.set("message_thread_id", String(topicId));
+    const res = await fetch(`${apiRoot}/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const json = (await res.json()) as { ok?: boolean; description?: string; result?: { message_id?: number } };
+    if (!json.ok) return { ok: false, error: json.description ?? `HTTP ${res.status}` };
+    return { ok: true, ...(json.result?.message_id !== undefined ? { messageId: json.result.message_id } : {}) };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 /** Is a local Bot API server reachable and serving this bot? */
 export async function probeLocalServer(apiRoot: string, token: string, timeoutMs = 4000): Promise<boolean> {
   try {

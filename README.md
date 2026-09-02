@@ -81,6 +81,14 @@ it just degrades to tier 2. Pointing `apiRoot` at the local server wholesale wou
 `getUpdates` there too, require `logOut`, and make Docker a hard dependency for the bot to work
 at all; that trade was deliberately refused.
 
+**Sending anything reliably.** Every outgoing message prefers the local Bot API server when
+it is running, and falls back to the cloud API with bounded retries. This is not only about
+size: on a connection where `api.telegram.org` is lossy, the local server reaches Telegram
+over MTProto instead. Measured on such a link, direct HTTPS succeeded 3/5 while the local
+route succeeded 5/5, so routing through it turns an intermittently broken bridge into a
+working one. General internet was fine throughout — the loss was specific to
+`api.telegram.org`.
+
 **Sending files reliably.** grammY is configured with `keepAlive: false`. Reusing a
 keep-alive socket that Telegram had already closed killed large uploads with
 `write ECONNRESET` — small calls slipped through, 45 MB uploads failed every time.

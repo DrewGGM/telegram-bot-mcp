@@ -24,6 +24,11 @@ and validated below.
   registration needs elevation, with a supervisor loop that restarts on failure.
 
 ### Fixed
+- **Outgoing messages now survive a lossy link to `api.telegram.org`.** Every
+  send prefers the local Bot API server (MTProto) when it is up and falls back
+  to the cloud API with bounded retries. Diagnosed on a connection where general
+  internet was perfect but `api.telegram.org` answered 3/5 while the local route
+  answered 5/5, leaving the bridge returning 500s.
 - **SECURITY (high): an unclaimed bot served any stranger.** Before ownership was
   claimed, `/ls`, `/find`, `/get` and `/config` were reachable by anyone who
   found the bot — including file exfiltration via `/get`. The bootstrap window is

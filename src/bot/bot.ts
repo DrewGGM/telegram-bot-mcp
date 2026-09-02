@@ -31,7 +31,14 @@ import {
 } from "../files/files.js";
 import { isPathAllowed } from "../security/paths.js";
 import { prepareOversize } from "../files/oversize.js";
-import { probeLocalServer, uploadViaLocalServer, LOCAL_SEND_LIMIT } from "../files/localupload.js";
+import {
+  probeLocalServer,
+  uploadViaLocalServer,
+  sendMessageViaLocalServer,
+  isLocalServerUp,
+  forgetLocalServerAvailability,
+  LOCAL_SEND_LIMIT,
+} from "../files/localupload.js";
 import { writeFileSync, rmSync } from "node:fs";
 import type { BridgeTarget, TelegramBridge } from "../ipc/protocol.js";
 import type { InstanceRegistry } from "../ipc/instances.js";
@@ -70,16 +77,50 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   // ---- low-level send helpers -------------------------------------------------
 
-  /** Send (chunked) and return the id of the LAST part — the one you'd reply to. */
+  /**
+   * Send (chunked) and return the id of the LAST part - the one you would reply to.
+   *
+   * Prefers the local Bot API server when it is running: on a link where
+   * api.telegram.org is lossy, the local server reaches Telegram over MTProto and
+   * is markedly more reliable. Falls back to grammY, retrying transient socket
+   * failures, so neither route being down loses the message silently.
+   */
   async function send(target: BridgeTarget, text: string): Promise<number | undefined> {
+    const apiRoot = getConfig().localApiRoot;
     let lastId: number | undefined;
     for (const part of chunkMessage(text)) {
-      const sent = await bot.api.sendMessage(target.chatId, part, {
-        ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-      });
-      lastId = sent.message_id;
+      if (await isLocalServerUp(apiRoot, deps.token)) {
+        const via = await sendMessageViaLocalServer(apiRoot, deps.token, target.chatId, part, target.topicId);
+        if (via.ok) {
+          lastId = via.messageId;
+          continue;
+        }
+        forgetLocalServerAvailability();
+        log.warn({ err: via.error }, "local Bot API sendMessage failed, falling back to the cloud API");
+      }
+      lastId = await sendViaCloudRetrying(target, part);
     }
     return lastId;
+  }
+
+  /** grammY send with bounded retries for transient network failures. */
+  async function sendViaCloudRetrying(target: BridgeTarget, part: string, attempts = 3): Promise<number | undefined> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const sentMsg = await bot.api.sendMessage(target.chatId, part, {
+          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
+        });
+        return sentMsg.message_id;
+      } catch (err) {
+        lastErr = err;
+        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network|failed/i.test(String(err));
+        if (!transient || attempt === attempts) throw err;
+        log.warn({ attempt, err: String(err) }, "sendMessage failed, retrying");
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+    throw lastErr;
   }
 
   /**
