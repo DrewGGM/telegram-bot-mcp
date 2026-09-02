@@ -75,11 +75,11 @@ two tiers, best first:
    split into parts with a `copy /b` line to rejoin them. The original file is never modified
    and its path is quoted in the message.
 
-The local server is used **only as a side channel for oversize uploads**. grammY keeps polling
-the cloud API, so the bot needs no `logOut` and keeps working normally when Docker is stopped —
-it just degrades to tier 2. Pointing `apiRoot` at the local server wholesale would move
-`getUpdates` there too, require `logOut`, and make Docker a hard dependency for the bot to work
-at all; that trade was deliberately refused.
+The local server is an **accelerator, never a dependency**. grammY keeps polling the cloud API
+for incoming updates, so the bot needs no `logOut` and keeps working when Docker is stopped — it
+just degrades to tier 2 for big files and to the cloud API for messages. Pointing `apiRoot` at
+the local server wholesale would move `getUpdates` there too, require `logOut`, and make Docker
+a hard dependency for the bot to work at all; that trade was deliberately refused.
 
 **Sending anything reliably.** Every outgoing message prefers the local Bot API server when
 it is running, and falls back to the cloud API with bounded retries. This is not only about
