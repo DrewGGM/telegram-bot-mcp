@@ -117,6 +117,13 @@ export function resolveUploadTarget(
   return { ok: true, value: { path: check.resolved } };
 }
 
+/**
+ * Telegram caps a media caption at 1024 characters (messages get 4096). Exceeding
+ * it fails the whole send with "message caption is too long", so long text is
+ * sent as its own message instead of being attached to the file.
+ */
+export const TELEGRAM_CAPTION_LIMIT = 1024;
+
 /** Telegram hard limits (bytes): 50 MB bot upload, 20 MB bot download. */
 export const TELEGRAM_SEND_LIMIT = 50 * 1024 * 1024;
 export const TELEGRAM_RECEIVE_LIMIT = 20 * 1024 * 1024;

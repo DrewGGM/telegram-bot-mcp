@@ -28,6 +28,7 @@ import {
   resolveUploadTarget,
   TELEGRAM_SEND_LIMIT,
   TELEGRAM_RECEIVE_LIMIT,
+  TELEGRAM_CAPTION_LIMIT,
 } from "../files/files.js";
 import { isPathAllowed } from "../security/paths.js";
 import { prepareOversize } from "../files/oversize.js";
@@ -746,21 +747,48 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
         // Name the path and record it: without this you get identical, useless
         // warnings and no way to tell which folder needs allowing.
         audit({ kind: "guardrail.blocked", tool: "telegram_send_file", rule: "path allowlist", detail: filePath });
-        await send(
-          target,
-          `⚠️ Blocked file send: ${res.error}
+        await send(target, `⚠️ Blocked file send: ${res.error}
 ${filePath}
 
-Allow it with: /config add <folder>`,
-        );
+Allow it with: /config add <folder>`);
         return { ok: false, error: `${res.error}: ${filePath}` };
       }
-      if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-        return deliverOversize(target, res.value!.path, res.value!.size, caption);
+
+      // A caption over Telegram's 1024-character cap fails the entire send, so
+      // long text goes out as its own message and the file keeps a short label.
+      let fileCaption = caption;
+      if (caption && caption.length > TELEGRAM_CAPTION_LIMIT) {
+        await send(target, caption);
+        fileCaption = path.basename(res.value!.path);
       }
+
+      // The local Bot API server is both more reliable on a lossy link and not
+      // bound by the 50 MB cap, so prefer it for EVERY upload - not just the big
+      // ones. Files that failed here used to be the small ones, which was exactly
+      // backwards.
+      const apiRoot = getConfig().localApiRoot;
+      const localUp = await isLocalServerUp(apiRoot, deps.token);
+      const limit = localUp ? LOCAL_SEND_LIMIT : TELEGRAM_SEND_LIMIT;
+      if (res.value!.size > limit) {
+        return deliverOversize(target, res.value!.path, res.value!.size, fileCaption);
+      }
+
+      if (localUp) {
+        const up = await uploadViaLocalServer(apiRoot, deps.token, target.chatId, res.value!.path, {
+          ...(fileCaption ? { caption: fileCaption } : {}),
+          ...(target.topicId !== undefined ? { topicId: target.topicId } : {}),
+        });
+        if (up.ok) {
+          audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
+          return up;
+        }
+        forgetLocalServerAvailability();
+        log.warn({ filePath, err: up.error }, "local Bot API upload failed, falling back to the cloud API");
+      }
+
       try {
         const sent = await sendDocumentRetrying(target.chatId, res.value!.path, {
-          ...(caption ? { caption } : {}),
+          ...(fileCaption ? { caption: fileCaption } : {}),
           ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
         });
         audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });

@@ -89,6 +89,12 @@ route succeeded 5/5, so routing through it turns an intermittently broken bridge
 working one. General internet was fine throughout — the loss was specific to
 `api.telegram.org`.
 
+**Every upload prefers the local server**, not just oversize ones. Small files used to take
+the cloud path and were therefore the *only* ones that failed on a lossy link — exactly
+backwards. A caption longer than Telegram's 1024-character cap is sent as its own message and
+the file keeps a short label, instead of failing the whole send with
+`message caption is too long`.
+
 **Sending files reliably.** grammY is configured with `keepAlive: false`. Reusing a
 keep-alive socket that Telegram had already closed killed large uploads with
 `write ECONNRESET` — small calls slipped through, 45 MB uploads failed every time.

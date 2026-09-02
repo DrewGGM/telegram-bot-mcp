@@ -208,6 +208,27 @@ describe("blocked file sends are diagnosable", () => {
   });
 });
 
+describe("captions longer than Telegram allows", () => {
+  it("sends the long text as its own message and keeps a short caption", async () => {
+    const long = "x".repeat(1500); // Telegram caps captions at 1024
+    const res = await bridge.sendFile({ chatId: OWNER }, path.join(allowed, "readme.txt"), long);
+    expect(res.ok).toBe(true);
+    // The full text went out as a message...
+    expect(sent("sendMessage").some((m) => m.payload.text.includes("x".repeat(100)))).toBe(true);
+    // ...and the file caption is short enough to be accepted.
+    const doc = sent("sendDocument").at(-1)!;
+    expect((doc.payload.caption ?? "").length).toBeLessThanOrEqual(1024);
+    afterEachCleanup();
+  });
+
+  it("leaves a short caption attached to the file", async () => {
+    const res = await bridge.sendFile({ chatId: OWNER }, path.join(allowed, "readme.txt"), "corto");
+    expect(res.ok).toBe(true);
+    expect(sent("sendDocument").at(-1)!.payload.caption).toBe("corto");
+    afterEachCleanup();
+  });
+});
+
 describe("uploads survive a stale keep-alive socket", () => {
   it("retries a write ECONNRESET and succeeds", async () => {
     uploadFailuresRemaining = 1; // first attempt dies mid-upload

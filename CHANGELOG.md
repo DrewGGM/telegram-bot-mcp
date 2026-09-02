@@ -24,6 +24,12 @@ and validated below.
   registration needs elevation, with a supervisor loop that restarts on failure.
 
 ### Fixed
+- **Small files were the only ones that failed.** Uploads used the local Bot API
+  server only when over 50 MB, so everything smaller took the flaky cloud path —
+  backwards. Every upload now prefers the local server, whatever its size.
+- **A long caption failed the whole send** (`message caption is too long`).
+  Telegram caps captions at 1024 characters; longer text now goes out as its own
+  message and the file keeps a short label.
 - **Outgoing messages now survive a lossy link to `api.telegram.org`.** Every
   send prefers the local Bot API server (MTProto) when it is up and falls back
   to the cloud API with bounded retries. Diagnosed on a connection where general
