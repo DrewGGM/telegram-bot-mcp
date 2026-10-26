@@ -34,8 +34,6 @@ interface Registered {
    * ownership is claimed after the daemon started.
    */
   getTarget: () => BridgeTarget | undefined;
-  /** Present only for per-turn session tokens, whose topic can be assigned late. */
-  setTarget?: (t: BridgeTarget) => void;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -78,14 +76,7 @@ export class IpcServer {
   /** Mint a fresh token bound to a session's destination. */
   registerSession(sessionId: string, target: BridgeTarget): string {
     const token = randomBytes(24).toString("hex");
-    let current = target;
-    this.tokens.set(token, {
-      sessionId,
-      getTarget: () => current,
-      setTarget: (t) => {
-        current = t;
-      },
-    });
+    this.tokens.set(token, { sessionId, getTarget: () => target });
     return token;
   }
 
@@ -96,13 +87,6 @@ export class IpcServer {
    */
   registerPersistent(sessionId: string, token: string, getTarget: () => BridgeTarget | undefined): void {
     this.tokens.set(token, { sessionId, getTarget });
-  }
-
-  /** Update the destination for every token of a session (e.g. topic assigned late). */
-  updateTarget(sessionId: string, target: BridgeTarget): void {
-    for (const reg of this.tokens.values()) {
-      if (reg.sessionId === sessionId) reg.setTarget?.(target);
-    }
   }
 
   /**
@@ -175,7 +159,7 @@ export class IpcServer {
       if (route === IPC_ROUTES.sendMessage) {
         const messageId = await this.bridge.sendMessage(target, label + String(body.text ?? ""));
         if (instance && messageId !== undefined) this.instances.claimMessage(messageId, instance.id);
-        log.info({ messageId, instance: instance?.label ?? null }, "bridge message sent");
+        log.debug({ messageId, instance: instance?.label ?? null }, "bridge message sent");
         const out: SendMessageResult = { ok: true, ...(messageId !== undefined ? { messageId } : {}) };
         return json(res, 200, out);
       }

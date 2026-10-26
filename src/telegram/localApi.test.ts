@@ -7,9 +7,9 @@ import {
   hasInputFile,
   localFirstTransformer,
   forgetLocalServerAvailability,
-  CLOUD_SEND_LIMIT,
   LOCAL_SEND_LIMIT,
 } from "./localApi.js";
+import { TELEGRAM_SEND_LIMIT } from "../files/files.js";
 
 /**
  * The local Bot API server is an optional accelerator, never a dependency:
@@ -23,9 +23,9 @@ afterEach(() => {
 
 describe("limits", () => {
   it("local server raises the ceiling 40x", () => {
-    expect(CLOUD_SEND_LIMIT).toBe(50 * 1024 * 1024);
+    expect(TELEGRAM_SEND_LIMIT).toBe(50 * 1024 * 1024);
     expect(LOCAL_SEND_LIMIT).toBe(2000 * 1024 * 1024);
-    expect(LOCAL_SEND_LIMIT / CLOUD_SEND_LIMIT).toBe(40);
+    expect(LOCAL_SEND_LIMIT / TELEGRAM_SEND_LIMIT).toBe(40);
   });
 });
 

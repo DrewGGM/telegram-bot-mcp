@@ -16,14 +16,15 @@ function bridgeLauncher(): { command: string; args: string[] } {
   return { command: "node", args: ["--import", "tsx", tsServer] };
 }
 
-export function buildMcpConfig(ipcUrl: string, token: string): unknown {
+function buildMcpConfig(ipcUrl: string, token: string): unknown {
   const { command, args } = bridgeLauncher();
   return {
     mcpServers: {
       "telegram-bridge": {
         command,
         args,
-        env: { TBM_IPC_URL: ipcUrl, TBM_IPC_TOKEN: token },
+        // claude -p ignores channels, so skip the parent-process probe.
+        env: { TBM_IPC_URL: ipcUrl, TBM_IPC_TOKEN: token, TBM_CHANNEL: "0" },
       },
     },
   };

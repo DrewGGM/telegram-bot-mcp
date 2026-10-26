@@ -21,7 +21,7 @@ function normalizeForCompare(p: string): string {
  * the non-existing tail. This prevents symlink/junction escapes for both
  * existing paths and paths about to be created.
  */
-export function canonicalize(p: string): string {
+function canonicalize(p: string): string {
   const absolute = path.resolve(p);
   let existing = absolute;
   const tail: string[] = [];

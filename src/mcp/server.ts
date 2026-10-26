@@ -326,7 +326,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
         backoffMs = 2_000;
         if (res.timedOut || res.reply === null) continue;
         const how = await router.dispatch(res.reply);
-        diag(`owner reply ${how}: ${res.reply.slice(0, 80)}`);
+        diag(`owner reply delivered (${how}, ${res.reply.length} chars)`);
       } catch (err) {
         if (stopped) return;
         // The daemon restarted and forgot us: get a fresh identity.

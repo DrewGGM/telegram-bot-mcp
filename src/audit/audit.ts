@@ -19,7 +19,6 @@ export type AuditEvent =
   | { kind: "turn.end"; sessionId: string; ok: boolean; ms: number }
   | { kind: "file.sent"; path: string; bytes: number }
   | { kind: "file.received"; path: string; bytes: number }
-  | { kind: "file.deleted"; path: string }
   | { kind: "confirm.requested"; action: string; target: string }
   | { kind: "confirm.resolved"; action: string; target: string; approved: boolean }
   | { kind: "guardrail.blocked"; tool: string; rule: string; detail: string }
@@ -36,5 +35,3 @@ export function audit(event: AuditEvent): void {
   const line = JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n";
   appendFileSync(AUDIT_PATH, line, "utf8");
 }
-
-export { AUDIT_PATH };

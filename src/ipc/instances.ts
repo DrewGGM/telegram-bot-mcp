@@ -18,7 +18,7 @@ import { randomBytes } from "node:crypto";
  * {@link LIVENESS_MS}; its inbox is dropped by `prune`.
  */
 
-export interface ForeignInstance {
+export interface BridgeInstance {
   id: string;
   /** Short human label shown in Telegram, e.g. the project folder name. */
   label: string;
@@ -62,7 +62,7 @@ const MAX_LABEL = 40;
 const MAX_TRACKED_MESSAGES = 2000;
 
 export class InstanceRegistry {
-  private readonly byId = new Map<string, ForeignInstance>();
+  private readonly byId = new Map<string, BridgeInstance>();
   /**
    * Telegram message id -> who sent it. The label and session are stored
    * alongside the id so we can still name the session in a reply after it has
@@ -70,10 +70,10 @@ export class InstanceRegistry {
    */
   private readonly messageOwner = new Map<number, { id: string; label: string; sessionId: string }>();
 
-  register(input: RegisterInput): ForeignInstance {
+  register(input: RegisterInput): BridgeInstance {
     const id = randomBytes(12).toString("hex");
     const now = Date.now();
-    const instance: ForeignInstance = {
+    const instance: BridgeInstance = {
       id,
       label: input.label.slice(0, MAX_LABEL) || "claude",
       cwd: input.cwd,
@@ -90,18 +90,18 @@ export class InstanceRegistry {
   }
 
   /** Look up an instance and record that its bridge is alive. */
-  get(id: string): ForeignInstance | undefined {
+  get(id: string): BridgeInstance | undefined {
     const found = this.byId.get(id);
     if (found) found.lastSeenAt = Date.now();
     return found;
   }
 
   /** Look up without touching `lastSeenAt` (for listings and tests). */
-  peek(id: string): ForeignInstance | undefined {
+  peek(id: string): BridgeInstance | undefined {
     return this.byId.get(id);
   }
 
-  list(): ForeignInstance[] {
+  list(): BridgeInstance[] {
     return [...this.byId.values()];
   }
 

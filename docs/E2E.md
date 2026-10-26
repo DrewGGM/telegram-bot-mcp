@@ -20,10 +20,12 @@ channel mode is interactive-only).
 | Two-way reply, live           | `npm run smoke:reply`                              | You swipe-reply in Telegram and the reply returns to THAT session through the wait tool.                                                                                                                    |
 | Live boot                     | `TBM_SMOKE_EXIT_MS=6000 npm run start:dev`         | The daemon connects to Telegram (long polling) and shuts down cleanly.                                                                                                                                      |
 
-### Latest automated results (2026-10-26, v0.3.0)
+### Latest automated results (2026-10-26, v0.3.1)
 
-- ✅ 268/268 tests in 21 files; typecheck, lint and format clean; coverage 95.6 % statements /
-  89.4 % branches on the gated set.
+- ✅ 277/277 tests in 23 files; typecheck (with unused-code checks), lint and format clean;
+  coverage 96.2 % statements / 89.9 % branches on the gated set.
+- ✅ Live smoke tests against a real `claude`: guardrails 5/5, turn pipeline 2/2, MCP tools in a
+  live agent 3/3 (all four tools offered) — none of them writes to the daemon's `data/` any more.
 - ✅ Bridge E2E through a real subprocess: tools, capabilities, label prefix, channel push, blocked
   wait, permission relay.
 - ✅ Hook binary: 4/4 process-level contract checks.

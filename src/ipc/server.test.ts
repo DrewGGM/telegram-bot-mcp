@@ -146,14 +146,6 @@ describe("IpcServer", () => {
     await post("/send_message", "tok2", { text: "x", chatId: 999, topicId: 5 });
     expect(calls[0]!.target).toEqual({ chatId: 11 });
   });
-
-  it("updateTarget changes where a live token delivers", async () => {
-    calls = [];
-    const token = server.registerSession("s5", { chatId: 10 });
-    server.updateTarget("s5", { chatId: 20, topicId: 3 });
-    await post("/send_message", token, { text: "y" });
-    expect(calls[0]!.target).toEqual({ chatId: 20, topicId: 3 });
-  });
 });
 
 describe("bridge instances over IPC", () => {

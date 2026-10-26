@@ -42,7 +42,7 @@ const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-export const PROJECT_ROOT = path.resolve(path.join(import.meta.dirname, "..", ".."));
+const PROJECT_ROOT = path.resolve(path.join(import.meta.dirname, "..", ".."));
 
 /**
  * Where runtime state lives (sessions, audit log, bridge token, generated

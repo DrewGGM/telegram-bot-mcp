@@ -27,6 +27,8 @@ const allowed = path.join(work, "allowed");
 const outside = path.join(work, "outside");
 mkdirSync(allowed, { recursive: true });
 mkdirSync(outside, { recursive: true });
+// The hook audits its blocks; keep them out of the live daemon's audit log.
+process.env.TBM_DATA_DIR = path.join(work, "data");
 
 const settingsPath = path.join(work, "guardrails.json");
 writeFileSync(

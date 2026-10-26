@@ -16,11 +16,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { IpcServer } from "../dist/ipc/server.js";
-import { writeMcpConfig } from "../dist/mcp/config.js";
-import { writeGuardrails } from "../dist/security/guardrails.js";
-
 const work = mkdtempSync(path.join(tmpdir(), "tbm-mcplive-"));
+// Keep the audit log and generated files out of the live daemon's data/.
+process.env.TBM_DATA_DIR = path.join(work, "data");
+const { IpcServer } = await import("../dist/ipc/server.js");
+const { writeMcpConfig } = await import("../dist/mcp/config.js");
+const { writeGuardrails } = await import("../dist/security/guardrails.js");
+
 mkdirSync(work, { recursive: true });
 const filePath = path.join(work, "report.txt");
 writeFileSync(filePath, "quarterly numbers");
@@ -33,6 +35,7 @@ const ipc = new IpcServer({
   },
   async sendFile(target, p, caption) {
     received.push({ kind: "file", target, path: p, caption });
+    return { ok: true, messageId: 1 };
   },
   async askUser(target, question, options) {
     received.push({ kind: "ask", target, question, options });
@@ -99,7 +102,7 @@ function toolsFrom(out) {
 let pass = 0;
 let total = 0;
 
-// --- Case 1: the agent is actually offered the three bridge tools ------------
+// --- Case 1: the agent is actually offered every bridge tool ---------------
 const out1 = await runAgent(
   `Use the telegram_send_file tool to send this file to the owner: ${filePath.replace(/\\/g, "\\\\")} with the caption "here you go". Then reply done.`,
 );
@@ -107,9 +110,15 @@ const tools = toolsFrom(out1);
 const bridgeTools = tools.filter((t) => t.startsWith("mcp__telegram-bridge__"));
 
 total++;
-const ok1 = bridgeTools.length === 3;
+const EXPECTED_TOOLS = [
+  "telegram_ask_user",
+  "telegram_send_file",
+  "telegram_send_message",
+  "telegram_wait_reply",
+];
+const ok1 = EXPECTED_TOOLS.every((t) => bridgeTools.includes(`mcp__telegram-bridge__${t}`));
 console.log(`\n▶ tools exposed to the live agent: ${bridgeTools.join(", ") || "(none)"}`);
-console.log(ok1 ? "   ✅ PASS (all 3 bridge tools present)" : "   ❌ FAIL");
+console.log(ok1 ? `   ✅ PASS (all ${EXPECTED_TOOLS.length} bridge tools present)` : "   ❌ FAIL");
 if (ok1) pass++;
 
 // --- Case 2: the agent's call actually reached the daemon --------------------

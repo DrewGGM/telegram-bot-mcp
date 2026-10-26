@@ -17,14 +17,14 @@ const GUARDED_TOOLS = "Bash|PowerShell|Write|Edit|NotebookEdit";
  * `dist/`, or the TypeScript source via tsx in development — so it works the
  * same whether the daemon was started with `npm start` or `npm run dev`.
  */
-export function hookCommand(): string {
+function hookCommand(): string {
   const jsHook = path.join(import.meta.dirname, "hook.js");
   const tsHook = path.join(import.meta.dirname, "hook.ts");
   if (existsSync(jsHook)) return `node "${jsHook}"`;
   return `node --import tsx "${tsHook}"`;
 }
 
-export function buildGuardrailSettings(): unknown {
+function buildGuardrailSettings(): unknown {
   return {
     hooks: {
       PreToolUse: [

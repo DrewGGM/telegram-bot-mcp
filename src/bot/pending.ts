@@ -13,7 +13,7 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export const DEFAULT_QUESTION_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_QUESTION_TIMEOUT_MS = 10 * 60_000;
 
 export class PendingQuestions {
   private readonly map = new Map<string, Pending>();

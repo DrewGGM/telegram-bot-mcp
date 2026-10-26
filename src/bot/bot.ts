@@ -68,7 +68,7 @@ const YES_LABEL = "✅ Yes";
 const NO_LABEL = "❌ No";
 const MAX_LIST_ENTRIES = 100;
 /** Messages older than this when they reach the daemon are logged and skipped. */
-export const STALE_UPDATE_SECONDS = 15 * 60;
+const STALE_UPDATE_SECONDS = 15 * 60;
 
 /** Error messages that mean "the network hiccuped", worth one more try. */
 const TRANSIENT_ERROR = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|ECONNREFUSED|network|failed/i;
@@ -236,12 +236,14 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       kb.text(opt, pending.callbackData(id, i));
       if ((i + 1) % 2 === 0) kb.row();
     });
-    for (const part of chunkMessage(question)) {
+    const parts = chunkMessage(question);
+    for (const [i, part] of parts.entries()) {
       // Buttons go on the last part, the one the owner sees at the bottom.
+      const last = i === parts.length - 1;
       await withRetry(
         () =>
           bot.api.sendMessage(target.chatId, part, {
-            ...(part === chunkMessage(question).at(-1) ? { reply_markup: kb } : {}),
+            ...(last ? { reply_markup: kb } : {}),
             ...threadOpts(target),
           }),
         "ask",
@@ -310,7 +312,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   // One line per incoming update (no message text), so "my reply never
   // arrived" can be told apart from "it arrived and was routed somewhere else".
   bot.use(async (ctx, next) => {
-    log.info(
+    log.debug(
       {
         update: ctx.update.update_id,
         kind: Object.keys(ctx.update).find((k) => k !== "update_id"),
@@ -538,7 +540,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   bot.command("sessions", async (ctx) => {
     const list = store.list();
     const registry = deps.instances;
-    const foreign = registry ? registry.list().filter((i) => registry.isAlive(i.id)) : [];
+    const connected = registry ? registry.list().filter((i) => registry.isAlive(i.id)) : [];
     const parts: string[] = [];
 
     if (list.length) {
@@ -552,12 +554,12 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
             .join("\n"),
       );
     }
-    if (foreign.length) {
+    if (connected.length) {
       // Claude Code sessions elsewhere on this machine with the bridge attached.
       // You answer one by swiping on a message it sent.
       parts.push(
         "🖥 Connected Claude Code sessions (reply to their messages to answer):\n" +
-          foreign
+          connected
             .map((i) => {
               const idle = Math.round((Date.now() - i.lastSeenAt) / 1000);
               const mode = i.waiting
@@ -674,7 +676,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       // processed while this handler sat waiting for it.
       detach(
         (async () => {
+          audit({ kind: "confirm.requested", action: "allowlist.add", target: value });
           const ok = await confirm(target, `Add this folder to the allowlist?\n${value}`);
+          audit({ kind: "confirm.resolved", action: "allowlist.add", target: value, approved: ok });
           if (!ok) {
             await send(target, "Cancelled.");
             return;
@@ -784,7 +788,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const repliedTo = ctx.msg.reply_to_message?.message_id;
     if (repliedTo !== undefined && deps.instances) {
       const origin = deps.instances.ownerOfMessage(repliedTo);
-      log.info(
+      log.debug(
         {
           repliedTo,
           origin: origin

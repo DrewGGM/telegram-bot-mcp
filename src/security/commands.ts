@@ -80,6 +80,3 @@ export function checkCommand(command: string): CommandCheck {
   }
   return { allowed: true };
 }
-
-/** Exported for documentation generation and tests. */
-export const denyRuleNames = DENY_RULES.map((r) => r.name);

@@ -1,7 +1,23 @@
 {
   "name": "telegram-bot-mcp",
-  "version": "0.3.0",
-  "description": "Telegram ↔ Claude Code bridge: control your PC's AI agent sessions, files and terminals from Telegram, with hard security guardrails.",
+  "version": "0.3.1",
+  "description": "Telegram ↔ Claude Code bridge: control your PC's agent sessions and files from Telegram, get notified by any Claude Code session and reply into it, with hard security guardrails.",
+  "license": "MIT",
+  "author": "Andrew Garcia",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DrewGGM/telegram-bot-mcp.git"
+  },
+  "homepage": "https://github.com/DrewGGM/telegram-bot-mcp#readme",
+  "bugs": "https://github.com/DrewGGM/telegram-bot-mcp/issues",
+  "keywords": [
+    "telegram",
+    "claude-code",
+    "mcp",
+    "bot",
+    "channels",
+    "grammy"
+  ],
   "type": "module",
   "private": true,
   "engines": {

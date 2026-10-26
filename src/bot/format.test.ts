@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chunkMessage, humanSize, escapeMarkdown, TELEGRAM_MAX } from "./format.js";
+import { chunkMessage, humanSize, TELEGRAM_MAX } from "./format.js";
 
 describe("chunkMessage", () => {
   it("returns empty array for empty string", () => {
@@ -59,10 +59,4 @@ describe("humanSize", () => {
   it("formats bytes", () => expect(humanSize(512)).toBe("512 B"));
   it("formats kilobytes", () => expect(humanSize(2048)).toBe("2.0 KB"));
   it("formats megabytes", () => expect(humanSize(5 * 1024 * 1024)).toBe("5.0 MB"));
-});
-
-describe("escapeMarkdown", () => {
-  it("escapes markdown control chars", () => {
-    expect(escapeMarkdown("a_b*c`d[e")).toBe("a\\_b\\*c\\`d\\[e");
-  });
 });

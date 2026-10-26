@@ -57,10 +57,6 @@ export class SessionStore {
     return [...this.doc.sessions];
   }
 
-  active(): Session[] {
-    return this.doc.sessions.filter((s) => s.state !== "hibernated" || s.isDefault);
-  }
-
   get(id: string): Session | undefined {
     return this.doc.sessions.find((s) => s.id === id);
   }
@@ -109,10 +105,6 @@ export class SessionStore {
     Object.assign(s, patch);
     this.persist();
     return s;
-  }
-
-  touch(id: string): void {
-    this.update(id, { lastActiveAt: new Date().toISOString() });
   }
 
   remove(id: string): boolean {

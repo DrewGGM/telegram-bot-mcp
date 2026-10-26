@@ -37,11 +37,6 @@ function findBoundary(text: string, limit: number): number {
   return limit;
 }
 
-/** Escape text for Telegram's legacy Markdown (used for our own status lines). */
-export function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`[])/g, "\\$1");
-}
-
 /** Human-readable byte size for captions and listings. */
 export function humanSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB"];

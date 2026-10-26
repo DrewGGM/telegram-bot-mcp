@@ -270,9 +270,10 @@ restarted on failure.
 1. **Identity** — Only the owner's Telegram id, only in the owner's private chat or the configured
    forum group. Every other update is dropped **silently**. Before an owner exists, only the
    `/start` handshake is reachable.
-2. **Network** — Outbound only. The IPC listens **exclusively on `127.0.0.1`**; per-turn tokens are
-   minted in memory; the one persisted desktop token is useless remotely and cannot choose a
-   recipient.
+2. **Network** — Outbound only. The IPC listens **exclusively on `127.0.0.1`**. Per-turn tokens
+   are random, handed to that turn's `claude` through a generated MCP config that is deleted when
+   the turn ends, and revoked at the same moment. The one persisted desktop token is useless
+   remotely and cannot choose a recipient.
 3. **Secrets** — The bot token lives only in `.env` (git-ignored) and is stripped from the
    environment handed to spawned agents.
 4. **Filesystem** — Paths are canonicalised with `realpath`; `..` escapes, symlink/junction escapes,
@@ -312,7 +313,8 @@ replies and IPC rejections. Findings and accepted limits: [docs/SECURITY-AUDIT.m
 | `localApiRoot`                 | `http://127.0.0.1:8081`    | The optional local Bot API server.                                  |
 
 `.env`: `BOT_TOKEN` (required), `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` (optional, local server),
-`LOG_LEVEL` (optional). Runtime state lives in `data/` (sessions, audit log, bridge token, logs).
+`LOG_LEVEL` (optional; `debug` adds one line per incoming update and per bridge message, without
+message text). Runtime state lives in `data/` (sessions, audit log, bridge token, logs).
 `TBM_DATA_DIR` and `TBM_CONFIG_PATH` redirect both, which is how the test suite keeps its hands off
 the live daemon's files.
 
@@ -372,6 +374,10 @@ server:telegram-bridge` (not `--channels`), the session is interactive (not `-p`
   check `docker logs telegram-bot-api` and that `.env` has the API credentials.
 - **Nothing works right after logon.** The daemon retries the Telegram handshake with backoff until
   the network is up; wait a minute or check the log.
+- **The bot sends but never receives.** Check whether Telegram is holding your messages:
+  `getWebhookInfo` shows `pending_update_count`. If it is above zero the daemon is not polling;
+  look for `long poll` warnings in `data/daemon.log`, or stop the supervisor and run
+  `DEBUG='grammy*' node dist/main.js` to see grammY's own retries.
 
 ## Manual setup
 

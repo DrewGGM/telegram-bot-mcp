@@ -18,8 +18,7 @@ import { log } from "../logger.js";
  * refused.
  */
 
-/** Bot API limits, in bytes. */
-export const CLOUD_SEND_LIMIT = 50 * 1024 * 1024;
+/** Upload limit of a local Bot API server, in bytes (the cloud's is TELEGRAM_SEND_LIMIT). */
 export const LOCAL_SEND_LIMIT = 2000 * 1024 * 1024;
 
 /**
@@ -28,7 +27,7 @@ export const LOCAL_SEND_LIMIT = 2000 * 1024 * 1024;
  * a path on its own disk rather than a downloadable URL; the webhook/session
  * methods because they manage the cloud session itself.
  */
-export const CLOUD_ONLY_METHODS = new Set([
+const CLOUD_ONLY_METHODS = new Set([
   "getUpdates",
   "getFile",
   "logOut",
@@ -58,7 +57,7 @@ export interface LocalUploadResult {
  * notices the container going up or down within seconds.
  */
 let availability: { at: number; ok: boolean } | null = null;
-export const AVAILABILITY_TTL_MS = 30_000;
+const AVAILABILITY_TTL_MS = 30_000;
 const CALL_TIMEOUT_MS = 30_000;
 
 /** Cached {@link probeLocalServer}. Pass force to bypass the cache. */

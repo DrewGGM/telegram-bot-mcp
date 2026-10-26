@@ -10,13 +10,14 @@ import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { SessionStore } from "../dist/sessions/store.js";
-import { SessionManager } from "../dist/sessions/manager.js";
-import { IpcServer } from "../dist/ipc/server.js";
-import { writeGuardrails } from "../dist/security/guardrails.js";
-
 const work = mkdtempSync(path.join(tmpdir(), "tbm-turn-"));
 mkdirSync(work, { recursive: true });
+// Keep the audit log and per-turn mcp configs out of the live daemon's data/.
+process.env.TBM_DATA_DIR = path.join(work, "data");
+const { SessionStore } = await import("../dist/sessions/store.js");
+const { SessionManager } = await import("../dist/sessions/manager.js");
+const { IpcServer } = await import("../dist/ipc/server.js");
+const { writeGuardrails } = await import("../dist/security/guardrails.js");
 
 const config = {
   ownerId: 1,
@@ -32,7 +33,9 @@ const config = {
 
 const ipc = new IpcServer({
   async sendMessage() {},
-  async sendFile() {},
+  async sendFile() {
+    return { ok: true };
+  },
   async askUser() {
     return "";
   },
@@ -46,11 +49,10 @@ const manager = new SessionManager(store, () => config, guardrailsPath, ipc);
 const session = store.create({ cwd: work, model: "haiku", mode: "ro", chatId: 1, isDefault: true });
 
 function capture() {
-  const events = { text: [], tools: [], result: null, error: null };
+  const events = { tools: [], result: null, error: null };
   return {
     events,
     cb: {
-      onText: (t) => events.text.push(t),
       onTool: (s) => events.tools.push(s),
       onResult: (r) => (events.result = r),
       onError: (e) => (events.error = e),

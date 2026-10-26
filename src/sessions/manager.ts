@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { rmSync } from "node:fs";
 import type { Config } from "../config/config.js";
 import type { Session, SessionStore } from "./store.js";
 import { buildClaudeArgs } from "./cli.js";
@@ -16,7 +17,6 @@ import { log } from "../logger.js";
  */
 
 export interface TurnCallbacks {
-  onText?(text: string): void;
   onTool?(summary: string): void;
   onResult?(result: { text: string; isError: boolean; ms?: number }): void;
   onError?(message: string): void;
@@ -39,10 +39,6 @@ export class SessionManager {
 
   setPanicked(v: boolean): void {
     this.panicked = v;
-  }
-
-  isRunning(sessionId: string): boolean {
-    return this.children.has(sessionId);
   }
 
   /** Run one turn for `session` with `prompt`; stream events to callbacks. */
@@ -105,11 +101,6 @@ export class SessionManager {
     const handleLine = (line: string): void => {
       for (const ev of parseStreamLine(line)) {
         switch (ev.type) {
-          case "system":
-            break;
-          case "assistant_text":
-            if (ev.text.trim()) cb.onText?.(ev.text);
-            break;
           case "tool_use":
             cb.onTool?.(summarizeToolUse(ev));
             break;
@@ -141,37 +132,55 @@ export class SessionManager {
     child.stdin?.end();
 
     await new Promise<void>((resolve) => {
-      child.on("close", (code) => {
+      // A failed spawn emits "error" and then "close"; the turn ends exactly once.
+      let finished = false;
+      const finish = (outcome: { ok: boolean; launched: boolean; error?: string }): void => {
+        if (finished) return;
+        finished = true;
         clearTimeout(timer);
         for (const line of splitter.flush()) handleLine(line);
-        this.children.delete(session.id);
-        this.ipc.revokeSession(session.id);
-
-        const ms = Date.now() - started;
+        this.release(session.id, mcpConfigPath);
         this.store.update(session.id, {
           state: "idle",
-          firstTurnDone: true,
+          // A conversation only exists once claude actually ran.
+          ...(outcome.launched ? { firstTurnDone: true } : {}),
           lastActiveAt: new Date().toISOString(),
         });
-        audit({ kind: "turn.end", sessionId: session.id, ok: code === 0 && sawResult, ms });
-
-        if (code !== 0 && !sawResult) {
-          cb.onError?.(
-            stderr.trim()
-              ? `Claude exited (code ${code}): ${stderr.trim().slice(0, 500)}`
-              : `Claude exited with code ${code}.`,
-          );
-        }
+        audit({ kind: "turn.end", sessionId: session.id, ok: outcome.ok, ms: Date.now() - started });
+        if (outcome.error) cb.onError?.(outcome.error);
         resolve();
+      };
+
+      child.on("close", (code) => {
+        const failed = code !== 0 && !sawResult;
+        const detail = stderr.trim().slice(0, 500);
+        finish({
+          ok: code === 0 && sawResult,
+          launched: true,
+          ...(failed
+            ? {
+                error: detail
+                  ? `Claude exited (code ${code}): ${detail}`
+                  : `Claude exited with code ${code}.`,
+              }
+            : {}),
+        });
       });
       child.on("error", (err) => {
-        clearTimeout(timer);
-        this.children.delete(session.id);
-        this.ipc.revokeSession(session.id);
-        cb.onError?.(`Failed to launch Claude: ${err.message}`);
-        resolve();
+        finish({ ok: false, launched: false, error: `Failed to launch Claude: ${err.message}` });
       });
     });
+  }
+
+  /**
+   * Free what a turn holds: the live child, the IPC token (and the bridge
+   * instances registered with it), and the mcp-config file that carried the
+   * token to claude. Idempotent: kill() revokes early, close() cleans up.
+   */
+  private release(sessionId: string, mcpConfigPath: string): void {
+    this.children.delete(sessionId);
+    this.ipc.revokeSession(sessionId);
+    rmSync(mcpConfigPath, { force: true });
   }
 
   /** Kill one session's in-flight process, if any. */

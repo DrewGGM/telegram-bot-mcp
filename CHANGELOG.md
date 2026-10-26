@@ -4,6 +4,41 @@ All notable changes to this project are documented here. This repository doubles
 as the public build report — each milestone from the design blueprint is landed
 and validated below.
 
+## [0.3.1] — 2026-10-26
+
+### Fixed
+
+- **The bot could send but never receive.** Incoming messages were lost in three ways: a
+  long-poll response lost on a lossy link left grammY waiting up to 500 s while retrying
+  silently; the first watchdog for that passed grammY's polyfill AbortSignal to
+  `AbortSignal.any`, which made every `getUpdates` fail before reaching the network; and
+  `drop_pending_updates` discarded everything sent while the daemon restarted. Each poll now
+  has its own deadline (linked by hand to grammY's signal, with a regression test on the real
+  polyfill), polling failures are logged, pending updates survive restarts, and messages older
+  than 15 minutes are skipped.
+- **A turn whose `claude` failed to launch was reported twice** (Node emits `error` and then
+  `close`), wrote to the session store after the turn had ended, and marked the conversation as
+  started although it never ran. A turn now finishes exactly once.
+- **Per-turn tokens were left on disk.** The generated `data/mcp/<session>.json` (which carries
+  the turn's IPC token to `claude`) is now deleted when the turn ends.
+- The live smoke scripts were out of date (three tools expected, a fake that broke the IPC
+  contract) and wrote to the daemon's audit log; they now run against a scratch data dir.
+
+### Changed
+
+- Dead code removed: `escapeMarkdown`, `denyRuleNames`, `SessionStore.active/touch`,
+  `SessionManager.isRunning`, the unused `onText` callback, `IpcServer.updateTarget` and its
+  "late target" plumbing, `CLOUD_SEND_LIMIT` (duplicated `TELEGRAM_SEND_LIMIT`), the never-emitted
+  `file.deleted` audit kind; ten exports that were only used internally are now module-private.
+  `noUnusedLocals` / `noUnusedParameters` are enforced.
+- `/config add` now records `confirm.requested` / `confirm.resolved` in the audit log (FR-21).
+- Diagnostic logs (per update, per bridge message, per routed reply) are `debug` level, and the
+  bridge no longer writes the owner's reply text into Claude Code's MCP log.
+- Bridges of daemon-run sessions skip channel detection (`claude -p` never honours channels),
+  saving a PowerShell launch per turn.
+- `ForeignInstance` → `BridgeInstance`: the registry also holds daemon-run sessions.
+- `package.json`: license, author, repository metadata.
+
 ## [0.3.0] — 2026-10-26
 
 ### Added
@@ -29,15 +64,6 @@ and validated below.
   Actions CI on Windows, `npm run check` as the single gate.
 
 ### Fixed
-
-- **The bot could send but never receive.** Incoming messages were lost in three ways: a
-  long-poll response lost on a lossy link left grammY waiting up to 500 s while retrying
-  silently; the first watchdog for that passed grammY's polyfill AbortSignal to
-  `AbortSignal.any`, which made every `getUpdates` fail before reaching the network; and
-  `drop_pending_updates` discarded everything sent while the daemon restarted. Each poll now
-  has its own deadline (linked by hand to grammY's signal, with a regression test on the real
-  polyfill), polling failures are logged, pending updates survive restarts, and messages older
-  than 15 minutes are skipped. Every incoming update and every bridge message id is logged.
 
 - **`/panic`, button taps and confirmations were blocked while a turn ran.** grammY handles
   long-polling updates one at a time and the handlers awaited whole Claude turns and button

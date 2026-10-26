@@ -54,5 +54,3 @@ function restrictToCurrentUser(filePath: string): void {
     /* non-fatal */
   }
 }
-
-export { TOKEN_PATH };
