@@ -73,7 +73,7 @@ function cmd(text: string) {
     update_id: Math.floor(Math.random() * 1e9),
     message: {
       message_id: Math.floor(Math.random() * 1e9),
-      date: 1,
+      date: Math.floor(Date.now() / 1000),
       chat: { id: ATTACKER, type: "private" },
       from: { id: ATTACKER, is_bot: false, first_name: "Mallory" },
       text,

@@ -134,7 +134,9 @@ async function main(): Promise<void> {
   await retryForever(() => bot.init(), "telegram handshake");
 
   await bot.start({
-    drop_pending_updates: true,
+    // Keep what arrived while the daemon was restarting: dropping it silently
+    // lost swipe-replies. Stale messages are skipped by the bot instead.
+    drop_pending_updates: false,
     onStart: (info) => log.info({ bot: info.username }, "long polling started"),
   });
 }

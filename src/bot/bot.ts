@@ -67,6 +67,8 @@ export interface BotDeps {
 const YES_LABEL = "✅ Yes";
 const NO_LABEL = "❌ No";
 const MAX_LIST_ENTRIES = 100;
+/** Messages older than this when they reach the daemon are logged and skipped. */
+export const STALE_UPDATE_SECONDS = 15 * 60;
 
 /** Error messages that mean "the network hiccuped", worth one more try. */
 const TRANSIENT_ERROR = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|ECONNREFUSED|network|failed/i;
@@ -318,6 +320,17 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       },
       "update received",
     );
+    // Pending updates are kept across restarts (a reply typed while the daemon
+    // restarts must not vanish), but a message that waited longer than this is
+    // more likely a stale command than something you still want executed.
+    const sentAt = ctx.message?.date;
+    if (sentAt !== undefined && Date.now() / 1000 - sentAt > STALE_UPDATE_SECONDS) {
+      log.info(
+        { update: ctx.update.update_id, ageSeconds: Math.round(Date.now() / 1000 - sentAt) },
+        "ignored stale update",
+      );
+      return;
+    }
     return next();
   });
 

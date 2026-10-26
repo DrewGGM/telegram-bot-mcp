@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { AbortController as PolyfillAbortController } from "abort-controller";
 import { pollingWatchdog, POLL_MARGIN_MS } from "./polling.js";
 
 /**
@@ -54,5 +55,30 @@ describe("pollingWatchdog", () => {
     stop.abort();
     await expect(call).rejects.toThrow("stopped");
     expect(stats.consecutiveFailures).toBe(0);
+  });
+
+  it("accepts grammY's polyfill AbortSignal (regression: every poll failed before reaching the network)", async () => {
+    // grammY passes a signal from the abort-controller polyfill; Node's
+    // AbortSignal.any rejects it, which made every getUpdates throw.
+    const stop = new PolyfillAbortController();
+    const prev = vi.fn(async () => ({ ok: true, result: [] }));
+    const stats = { lastOkAt: 0, consecutiveFailures: 0 };
+    await expect(
+      pollingWatchdog(stats)(prev as any, "getUpdates", { timeout: 30 }, stop.signal as any),
+    ).resolves.toEqual({ ok: true, result: [] });
+    expect(stats.consecutiveFailures).toBe(0);
+  });
+
+  it("propagates a stop from grammY's polyfill signal to the request", async () => {
+    const stop = new PolyfillAbortController();
+    const prev = vi.fn(
+      (_m: string, _p: unknown, signal: AbortSignal) =>
+        new Promise((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("stopped"))),
+        ),
+    );
+    const call = pollingWatchdog()(prev as any, "getUpdates", { timeout: 30 }, stop.signal as any);
+    stop.abort();
+    await expect(call).rejects.toThrow("stopped");
   });
 });

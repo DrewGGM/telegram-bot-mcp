@@ -7,13 +7,16 @@ import { log } from "../logger.js";
  * grammY sends `getUpdates` with a 30 s server-side timeout but its HTTP client
  * waits up to 500 s by default, and polling errors that are not Bot API errors
  * are retried silently. On a link where `api.telegram.org` drops packets, the
- * response to one long poll can vanish into a half-open socket: the bot then
- * keeps *sending* perfectly (each send is a fresh connection) while it hears
- * nothing for minutes — every reply you type is lost in that window.
+ * response to one long poll can vanish into a half-open socket: the bot keeps
+ * *sending* (each send is a fresh connection) while it hears nothing.
  *
  * This transformer gives every `getUpdates` call its own deadline (server
  * timeout + margin), so a dead socket is abandoned and grammY retries on a
- * fresh one within seconds, and it logs each failure so the problem is visible.
+ * fresh one within seconds, and it logs every polling failure.
+ *
+ * grammY passes an AbortSignal from the `abort-controller` polyfill, which
+ * Node's `AbortSignal.any` rejects. The signals are therefore linked by hand
+ * through `addEventListener`, which both implementations support.
  */
 
 export const POLL_MARGIN_MS = 15_000;
@@ -24,6 +27,12 @@ export interface PollingStats {
   consecutiveFailures: number;
 }
 
+interface SignalLike {
+  aborted: boolean;
+  addEventListener(type: "abort", listener: () => void): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
 export function pollingWatchdog(
   stats: PollingStats = { lastOkAt: 0, consecutiveFailures: 0 },
   marginMs: number = POLL_MARGIN_MS,
@@ -31,13 +40,22 @@ export function pollingWatchdog(
   return async (prev, method, payload, signal) => {
     if (method !== "getUpdates") return prev(method, payload, signal);
 
+    const outer = signal as unknown as SignalLike | undefined;
+    const controller = new AbortController();
+    let stalled = false;
+    const onOuterAbort = (): void => controller.abort();
     const serverTimeoutS = Number((payload as { timeout?: number }).timeout ?? DEFAULT_SERVER_TIMEOUT_S);
-    const deadline = AbortSignal.timeout(serverTimeoutS * 1000 + marginMs);
-    // grammY types the signal with the `abort-controller` polyfill; at runtime it is the global one.
-    const outer = signal as unknown as AbortSignal | undefined;
-    const combined = outer ? AbortSignal.any([outer, deadline]) : deadline;
+    const timer = setTimeout(
+      () => {
+        stalled = true;
+        controller.abort();
+      },
+      serverTimeoutS * 1000 + marginMs,
+    );
     try {
-      const res = await prev(method, payload, combined as unknown as typeof signal);
+      if (outer?.aborted) controller.abort();
+      else outer?.addEventListener("abort", onOuterAbort);
+      const res = await prev(method, payload, controller.signal as unknown as typeof signal);
       if (stats.consecutiveFailures > 0) {
         log.info({ after: stats.consecutiveFailures }, "long polling recovered");
       }
@@ -49,15 +67,14 @@ export function pollingWatchdog(
       if (!outer?.aborted) {
         stats.consecutiveFailures++;
         log.warn(
-          {
-            err: String(err),
-            stalled: deadline.aborted,
-            consecutiveFailures: stats.consecutiveFailures,
-          },
-          deadline.aborted ? "long poll stalled, retrying on a fresh connection" : "long poll failed",
+          { err: String(err), stalled, consecutiveFailures: stats.consecutiveFailures },
+          stalled ? "long poll stalled, retrying on a fresh connection" : "long poll failed",
         );
       }
       throw err;
+    } finally {
+      clearTimeout(timer);
+      outer?.removeEventListener("abort", onOuterAbort);
     }
   };
 }

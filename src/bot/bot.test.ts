@@ -387,6 +387,19 @@ describe("questions with buttons", () => {
   });
 });
 
+describe("updates that waited too long", () => {
+  it("skips a stale message but processes a fresh one", async () => {
+    const stale = messageUpdate("old command", OWNER);
+    stale.message.date = Math.floor(Date.now() / 1000) - 60 * 60;
+    await bot.handleUpdate(stale);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(turns).toHaveLength(0);
+    await bot.handleUpdate(messageUpdate("new command", OWNER));
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    afterEachCleanup();
+  });
+});
+
 describe("bot (offline integration)", () => {
   it("drops updates from a non-owner with NO reply (FR-1)", async () => {
     await bot.handleUpdate(messageUpdate("/status", 999));
