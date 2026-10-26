@@ -101,7 +101,7 @@ describe("createLineSplitter", () => {
   it("reassembles lines across chunk boundaries", () => {
     const s = createLineSplitter();
     expect(s.push('{"a":1}\n{"b":')).toEqual(['{"a":1}']);
-    expect(s.push('2}\n')).toEqual(['{"b":2}']);
+    expect(s.push("2}\n")).toEqual(['{"b":2}']);
     expect(s.flush()).toEqual([]);
   });
 

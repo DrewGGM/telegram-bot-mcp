@@ -4,17 +4,18 @@ This project separates **what can be proven automatically** from **the one step 
 
 ## Automated (run these)
 
-| Check | Command | Proves |
-|---|---|---|
-| Unit + integration suite | `npm run check` | All module logic; non-owner gets no reply (FR-1); routing; parsing; path/command guards. |
-| Coverage gate | `npm run coverage` | ≥90% statements on security-critical modules. |
-| Guardrail smoke (real Claude) | `npm run smoke:guardrail` | In `full`/bypassPermissions mode, a live agent is **blocked** outside the allowlist and on deny-listed commands; allowed work succeeds. |
-| Turn pipeline (real Claude) | `npm run smoke:turn` | `SessionManager` spawns a live `claude`, streams a result back, and a second turn **resumes context** (FR-5). |
-| MCP bridge E2E | `npx vitest run src/mcp/server.test.ts` | Real bridge subprocess → loopback IPC → daemon, destination fixed by token (ADR-5). |
-| MCP tools in a live agent | `npm run smoke:mcp` | A real `claude` session is offered all three `telegram_*` tools, actually **invokes** `telegram_send_file`, and the call lands on the **daemon-chosen** destination (FR-17/18, ADR-5). |
-| Live boot | `TBM_SMOKE_EXIT_MS=6000 npm run start:dev` | Daemon connects to Telegram (long polling) and shuts down cleanly. |
+| Check                         | Command                                    | Proves                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit + integration suite      | `npm run check`                            | All module logic; non-owner gets no reply (FR-1); routing; parsing; path/command guards.                                                                                               |
+| Coverage gate                 | `npm run coverage`                         | ≥90% statements on security-critical modules.                                                                                                                                          |
+| Guardrail smoke (real Claude) | `npm run smoke:guardrail`                  | In `full`/bypassPermissions mode, a live agent is **blocked** outside the allowlist and on deny-listed commands; allowed work succeeds.                                                |
+| Turn pipeline (real Claude)   | `npm run smoke:turn`                       | `SessionManager` spawns a live `claude`, streams a result back, and a second turn **resumes context** (FR-5).                                                                          |
+| MCP bridge E2E                | `npx vitest run src/mcp/server.test.ts`    | Real bridge subprocess → loopback IPC → daemon, destination fixed by token (ADR-5).                                                                                                    |
+| MCP tools in a live agent     | `npm run smoke:mcp`                        | A real `claude` session is offered all three `telegram_*` tools, actually **invokes** `telegram_send_file`, and the call lands on the **daemon-chosen** destination (FR-17/18, ADR-5). |
+| Live boot                     | `TBM_SMOKE_EXIT_MS=6000 npm run start:dev` | Daemon connects to Telegram (long polling) and shuts down cleanly.                                                                                                                     |
 
 ### Latest automated results
+
 - ✅ 164/164 tests passing, typecheck clean.
 - ✅ Coverage 90.5% overall on the security-critical set (commands/paths/auth/args/cli/pending/format at 95–100%).
 - ✅ Guardrail smoke: **5/5** — including a live `full`-mode session blocked from writing outside the allowlist.
@@ -28,7 +29,7 @@ This project separates **what can be proven automatically** from **the one step 
 
 Do this once after setup. Each maps to a functional requirement.
 
-1. **Ownership (FR-1)** — Fresh install, send `/start` in private chat → you get your id + a Claim button. Tap it. From a *second* Telegram account, message the bot → **no response at all**.
+1. **Ownership (FR-1)** — Fresh install, send `/start` in private chat → you get your id + a Claim button. Tap it. From a _second_ Telegram account, message the bot → **no response at all**.
 2. **Chat with memory (FR-4/5/6)** — Send "remember my favorite number is 7", then "what is it?" → the agent answers "7". Long replies arrive split into ≤4096-char parts.
 3. **Files (FR-12/13)** — `/ls`, `/find <name>`, `/get <path>` → the file arrives in chat. A path outside the allowlist is refused.
 4. **Upload (FR-14)** — Send a document → it's saved into the session folder with a confirmation.
@@ -40,10 +41,10 @@ Do this once after setup. Each maps to a functional requirement.
 
 ## Global registration (FR-19)
 
-| Check | Command | Proves |
-|---|---|---|
-| Two-way reply, live | `npm run smoke:reply` | A foreign session sends a message, you swipe-reply in Telegram, and the reply returns to THAT session (verified manually: replied "Holis", the session received it). |
-| Desktop bridge, live | `npm run smoke:global` | With the daemon running, a bridge subprocess started **outside** the daemon (persisted token + fixed port) delivers a real Telegram message to the owner. |
+| Check                | Command                | Proves                                                                                                                                                               |
+| -------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Two-way reply, live  | `npm run smoke:reply`  | A foreign session sends a message, you swipe-reply in Telegram, and the reply returns to THAT session (verified manually: replied "Holis", the session received it). |
+| Desktop bridge, live | `npm run smoke:global` | With the daemon running, a bridge subprocess started **outside** the daemon (persisted token + fixed port) delivers a real Telegram message to the owner.            |
 
 - ✅ Verified: `claude mcp list` shows `telegram-bridge — ✔ Connected` at **User config** scope, and a message sent through it arrived on Telegram.
 - The IPC refuses (409) rather than misrouting when no owner has claimed the bot yet.

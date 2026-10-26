@@ -100,7 +100,8 @@ beforeEach(() => {
       uploadFailuresRemaining--;
       throw new Error("request to api.telegram.org failed, reason: write ECONNRESET");
     }
-    if (method === "getFile") return { ok: true, result: { file_id: "f", file_unique_id: "u", file_path: "x" } } as any;
+    if (method === "getFile")
+      return { ok: true, result: { file_id: "f", file_unique_id: "u", file_path: "x" } } as any;
     return { ok: true, result: { message_id: 1 } } as any;
   });
 });
@@ -118,7 +119,9 @@ function messageUpdate(text: string, fromId: number, chatId = fromId): any {
       chat: { id: chatId, type: chatId === fromId ? "private" : "supergroup" },
       from: { id: fromId, is_bot: false, first_name: "U" },
       text,
-      entities: text.startsWith("/") ? [{ type: "bot_command", offset: 0, length: text.split(" ")[0].length }] : [],
+      entities: text.startsWith("/")
+        ? [{ type: "bot_command", offset: 0, length: text.split(" ")[0].length }]
+        : [],
     },
   };
 }
@@ -140,7 +143,7 @@ function replyUpdate(text: string, replyToMessageId: number, fromId = OWNER): an
 
 describe("replying to a foreign session (FR-19 two-way)", () => {
   it("routes a swipe-reply to the session that sent that message", async () => {
-    const inst = instances.register("fineract", "C:\proj\fineract");
+    const inst = instances.register("fineract", "C:\\proj\\fineract");
     instances.claimMessage(500, inst.id);
 
     await bot.handleUpdate(replyUpdate("dale, continua", 500));
@@ -192,8 +195,8 @@ describe("blocked file sends are diagnosable", () => {
     await bridge.sendFile({ chatId: OWNER }, outside);
     const res = await bridge.sendFile({ chatId: OWNER }, outside);
     const text = sent("sendMessage").at(-1)!.payload.text;
-    expect(text).toContain(outside);        // the path, not just a generic error
-    expect(text).toMatch(/config add/);     // and how to fix it
+    expect(text).toContain(outside); // the path, not just a generic error
+    expect(text).toMatch(/config add/); // and how to fix it
     // And the caller is told it FAILED - never a false "sent".
     expect(res.ok).toBe(false);
     expect(res.error).toContain(outside);

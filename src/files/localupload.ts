@@ -69,9 +69,16 @@ export async function sendMessageViaLocalServer(
       body,
       signal: AbortSignal.timeout(30_000),
     });
-    const json = (await res.json()) as { ok?: boolean; description?: string; result?: { message_id?: number } };
+    const json = (await res.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: { message_id?: number };
+    };
     if (!json.ok) return { ok: false, error: json.description ?? `HTTP ${res.status}` };
-    return { ok: true, ...(json.result?.message_id !== undefined ? { messageId: json.result.message_id } : {}) };
+    return {
+      ok: true,
+      ...(json.result?.message_id !== undefined ? { messageId: json.result.message_id } : {}),
+    };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -110,12 +117,19 @@ export async function uploadViaLocalServer(
     form.set("document", await openAsBlob(filePath), path.basename(filePath));
 
     const res = await fetch(`${apiRoot}/bot${token}/sendDocument`, { method: "POST", body: form });
-    const body = (await res.json()) as { ok?: boolean; description?: string; result?: { message_id?: number } };
+    const body = (await res.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: { message_id?: number };
+    };
     if (!body.ok) {
       return { ok: false, error: body.description ?? `HTTP ${res.status}` };
     }
     log.info({ filePath, messageId: body.result?.message_id }, "uploaded via local Bot API server");
-    return { ok: true, ...(body.result?.message_id !== undefined ? { messageId: body.result.message_id } : {}) };
+    return {
+      ok: true,
+      ...(body.result?.message_id !== undefined ? { messageId: body.result.message_id } : {}),
+    };
   } catch (err) {
     return { ok: false, error: String(err) };
   }

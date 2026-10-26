@@ -52,14 +52,23 @@ function runAgent(prompt) {
     const child = spawn(
       "claude",
       [
-        "-p", "--output-format", "stream-json", "--verbose",
-        "--model", "haiku",
-        "--permission-mode", "bypassPermissions",
-        "--settings", guardrailsPath,
-        "--mcp-config", mcpConfigPath,
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        "haiku",
+        "--permission-mode",
+        "bypassPermissions",
+        "--settings",
+        guardrailsPath,
+        "--mcp-config",
+        mcpConfigPath,
         "--strict-mcp-config",
-        "--session-id", randomUUID(),
-        "--add-dir", work,
+        "--session-id",
+        randomUUID(),
+        "--add-dir",
+        work,
       ],
       {
         cwd: work,
@@ -117,7 +126,9 @@ const ok3 =
   fileCall &&
   fileCall.target.chatId === DAEMON_CHOSEN.chatId &&
   fileCall.target.topicId === DAEMON_CHOSEN.topicId;
-console.log(`\n▶ destination: ${JSON.stringify(fileCall?.target)} (daemon chose ${JSON.stringify(DAEMON_CHOSEN)})`);
+console.log(
+  `\n▶ destination: ${JSON.stringify(fileCall?.target)} (daemon chose ${JSON.stringify(DAEMON_CHOSEN)})`,
+);
 console.log(ok3 ? "   ✅ PASS (daemon-fixed destination)" : "   ❌ FAIL");
 if (ok3) pass++;
 

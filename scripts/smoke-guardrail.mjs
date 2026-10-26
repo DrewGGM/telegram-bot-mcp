@@ -62,20 +62,14 @@ function runHook(payload, allowlist) {
 }
 
 async function layer1() {
-  const denied = await runHook(
-    { tool_name: "Bash", tool_input: { command: "shutdown /s /t 0" } },
-    [allowed],
-  );
+  const denied = await runHook({ tool_name: "Bash", tool_input: { command: "shutdown /s /t 0" } }, [allowed]);
   total++;
   const ok1 = denied.code === 2 && /Blocked by guardrail/.test(denied.err);
   console.log(`\n▶ [hook] deny-listed shutdown → exit ${denied.code}`);
   console.log(ok1 ? "   ✅ PASS (blocked)" : "   ❌ FAIL");
   if (ok1) pass++;
 
-  const allowedCall = await runHook(
-    { tool_name: "Bash", tool_input: { command: "npm test" } },
-    [allowed],
-  );
+  const allowedCall = await runHook({ tool_name: "Bash", tool_input: { command: "npm test" } }, [allowed]);
   total++;
   const ok2 = allowedCall.code === 0;
   console.log(`▶ [hook] benign 'npm test' → exit ${allowedCall.code}`);
@@ -98,13 +92,22 @@ async function layer1() {
 function runClaude(prompt) {
   return new Promise((resolve) => {
     const args = [
-      "-p", "--output-format", "stream-json", "--verbose",
-      "--model", "haiku",
-      "--permission-mode", "bypassPermissions",
-      "--settings", settingsPath,
-      "--session-id", randomUUID(),
-      "--add-dir", allowed,
-      "--add-dir", outside,
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--model",
+      "haiku",
+      "--permission-mode",
+      "bypassPermissions",
+      "--settings",
+      settingsPath,
+      "--session-id",
+      randomUUID(),
+      "--add-dir",
+      allowed,
+      "--add-dir",
+      outside,
     ];
     const child = spawn("claude", args, {
       cwd: allowed,

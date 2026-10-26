@@ -9,8 +9,8 @@ import { InstanceRegistry } from "./instances.js";
 describe("InstanceRegistry", () => {
   it("mints distinct, unguessable ids", () => {
     const r = new InstanceRegistry();
-    const a = r.register("proj-a", "C:\a");
-    const b = r.register("proj-b", "C:\b");
+    const a = r.register("proj-a", "C:\\a");
+    const b = r.register("proj-b", "C:\\b");
     expect(a.id).not.toBe(b.id);
     expect(a.id).toMatch(/^[0-9a-f]{24}$/);
   });

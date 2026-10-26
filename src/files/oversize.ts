@@ -23,11 +23,7 @@ export function isVideo(filePath: string): boolean {
  * Bitrate (kbps) for the video stream so that video+audio lands just under
  * `targetBytes`. Returns 0 when the budget cannot fit even a minimal stream.
  */
-export function computeVideoBitrateKbps(
-  durationSec: number,
-  targetBytes: number,
-  audioKbps = 128,
-): number {
+export function computeVideoBitrateKbps(durationSec: number, targetBytes: number, audioKbps = 128): number {
   if (!(durationSec > 0) || !(targetBytes > 0)) return 0;
   const totalKbps = (targetBytes * 8) / durationSec / 1000;
   const videoKbps = Math.floor(totalKbps - audioKbps);
@@ -111,7 +107,7 @@ async function compressVideo(filePath: string, limit: number, workDir: string): 
   // caps resolution, because a bitrate target is not an exact size guarantee.
   const attempts = [
     { headroom: 0.92, scale: null as string | null },
-    { headroom: 0.75, scale: "scale=-2:min(720\,ih)" },
+    { headroom: 0.75, scale: "scale=-2:min(720\\,ih)" },
   ];
 
   for (const [i, a] of attempts.entries()) {
@@ -119,15 +115,25 @@ async function compressVideo(filePath: string, limit: number, workDir: string): 
     if (kbps <= 0) return null;
     const out = path.join(workDir, `${path.parse(filePath).name}_compressed${i}.mp4`);
     const args = [
-      "-y", "-i", filePath,
+      "-y",
+      "-i",
+      filePath,
       ...(a.scale ? ["-vf", a.scale] : []),
-      "-c:v", gpu ? "h264_nvenc" : "libx264",
-      "-b:v", `${kbps}k`,
-      "-maxrate", `${Math.floor(kbps * 1.3)}k`,
-      "-bufsize", `${kbps * 2}k`,
+      "-c:v",
+      gpu ? "h264_nvenc" : "libx264",
+      "-b:v",
+      `${kbps}k`,
+      "-maxrate",
+      `${Math.floor(kbps * 1.3)}k`,
+      "-bufsize",
+      `${kbps * 2}k`,
       ...(gpu ? ["-preset", "p4"] : ["-preset", "veryfast"]),
-      "-c:a", "aac", "-b:a", "128k",
-      "-movflags", "+faststart",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
       out,
     ];
     log.info({ filePath, kbps, gpu, attempt: i + 1 }, "compressing oversize video");

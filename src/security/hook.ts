@@ -40,7 +40,10 @@ export function evaluateHook(
     const command = typeof toolInput.command === "string" ? toolInput.command : "";
     const check = checkCommand(command);
     if (!check.allowed) {
-      return { block: true, reason: `Blocked by guardrail (${check.rule}): this command class is never allowed.` };
+      return {
+        block: true,
+        reason: `Blocked by guardrail (${check.rule}): this command class is never allowed.`,
+      };
     }
     return { block: false };
   }
@@ -79,7 +82,7 @@ function readAllowedDirs(): string[] {
 async function main(): Promise<void> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  let payload: Record<string, any> = {};
+  let payload: Record<string, any>;
   try {
     payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
   } catch {
@@ -87,8 +90,7 @@ async function main(): Promise<void> {
   }
 
   const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
-  const toolInput =
-    payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input : {};
+  const toolInput = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input : {};
 
   let decision: HookDecision;
   try {
@@ -116,9 +118,7 @@ async function main(): Promise<void> {
 }
 
 // Run main only when executed directly as the hook (not when imported by tests).
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  /security[\\/]hook\.(ts|js)$/.test(process.argv[1]);
+const isDirectRun = process.argv[1] !== undefined && /security[\\/]hook\.(ts|js)$/.test(process.argv[1]);
 if (isDirectRun) {
   void main();
 }

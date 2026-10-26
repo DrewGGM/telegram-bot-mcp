@@ -87,7 +87,10 @@ export function buildBridgeServer(): McpServer {
       if (!instanceId) {
         return {
           content: [
-            { type: "text", text: "Message delivered, but this session has no identity registered, so it cannot receive a reply." },
+            {
+              type: "text",
+              text: "Message delivered, but this session has no identity registered, so it cannot receive a reply.",
+            },
           ],
         };
       }
@@ -125,7 +128,9 @@ export function buildBridgeServer(): McpServer {
         // Tell the truth: the daemon refused, so do not claim it was sent.
         return {
           isError: true,
-          content: [{ type: "text", text: `Could not send ${path}: ${out.error ?? "refused by the daemon"}` }],
+          content: [
+            { type: "text", text: `Could not send ${path}: ${out.error ?? "refused by the daemon"}` },
+          ],
         };
       }
       return { content: [{ type: "text", text: `File sent: ${path}` }] };
@@ -168,7 +173,12 @@ export function buildBridgeServer(): McpServer {
     async ({ timeout_seconds }) => {
       if (!instanceId) {
         return {
-          content: [{ type: "text", text: "This session has no identity registered with the daemon, so it cannot receive replies." }],
+          content: [
+            {
+              type: "text",
+              text: "This session has no identity registered with the daemon, so it cannot receive replies.",
+            },
+          ],
         };
       }
       const res = await callDaemon("/wait_reply", {
@@ -177,7 +187,12 @@ export function buildBridgeServer(): McpServer {
       });
       return {
         content: [
-          { type: "text", text: res.timedOut ? "No reply from the owner within the timeout." : `The owner replied: ${res.reply}` },
+          {
+            type: "text",
+            text: res.timedOut
+              ? "No reply from the owner within the timeout."
+              : `The owner replied: ${res.reply}`,
+          },
         ],
       };
     },
@@ -193,8 +208,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined && /mcp[\\/]server\.(ts|js)$/.test(process.argv[1]);
+const isDirectRun = process.argv[1] !== undefined && /mcp[\\/]server\.(ts|js)$/.test(process.argv[1]);
 if (isDirectRun) {
   void main();
 }

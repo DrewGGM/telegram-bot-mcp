@@ -66,7 +66,9 @@ total++;
 const c1 = capture();
 await manager.runTurn(session, "Remember the secret word is BANANA. Reply with exactly: OK", c1.cb);
 const r1ok = c1.events.result && /OK/i.test(c1.events.result.text) && !c1.events.error;
-console.log(`▶ turn 1 result: ${JSON.stringify(c1.events.result?.text)?.slice(0, 80)} error=${c1.events.error}`);
+console.log(
+  `▶ turn 1 result: ${JSON.stringify(c1.events.result?.text)?.slice(0, 80)} error=${c1.events.error}`,
+);
 console.log(r1ok ? "   ✅ PASS (streamed a result)" : "   ❌ FAIL");
 if (r1ok) pass++;
 

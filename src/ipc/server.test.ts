@@ -83,7 +83,11 @@ describe("IpcServer", () => {
     const token = server.registerSession("s2", { chatId: 5 });
     const res = await post("/send_file", token, { path: "/a/b.pdf", caption: "cap" });
     expect(res.status).toBe(200);
-    expect(calls[0]).toMatchObject({ route: "send_file", target: { chatId: 5 }, arg: { filePath: "/a/b.pdf", caption: "cap" } });
+    expect(calls[0]).toMatchObject({
+      route: "send_file",
+      target: { chatId: 5 },
+      arg: { filePath: "/a/b.pdf", caption: "cap" },
+    });
   });
 
   it("round-trips ask_user and returns the answer", async () => {
@@ -103,9 +107,7 @@ describe("IpcServer", () => {
   it("a persistent token resolves its destination per request (FR-19)", async () => {
     calls = [];
     let owner: number | undefined = undefined;
-    server.registerPersistent("global", "fixed-token", () =>
-      owner ? { chatId: owner } : undefined,
-    );
+    server.registerPersistent("global", "fixed-token", () => (owner ? { chatId: owner } : undefined));
 
     // Before ownership is claimed the daemon refuses rather than misrouting.
     const early = await post("/send_message", "fixed-token", { text: "too soon" });

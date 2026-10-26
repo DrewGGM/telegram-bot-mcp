@@ -105,7 +105,11 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   }
 
   /** grammY send with bounded retries for transient network failures. */
-  async function sendViaCloudRetrying(target: BridgeTarget, part: string, attempts = 3): Promise<number | undefined> {
+  async function sendViaCloudRetrying(
+    target: BridgeTarget,
+    part: string,
+    attempts = 3,
+  ): Promise<number | undefined> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -115,7 +119,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
         return sentMsg.message_id;
       } catch (err) {
         lastErr = err;
-        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network|failed/i.test(String(err));
+        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network|failed/i.test(
+          String(err),
+        );
         if (!transient || attempt === attempts) throw err;
         log.warn({ attempt, err: String(err) }, "sendMessage failed, retrying");
         await new Promise((r) => setTimeout(r, 500 * attempt));
@@ -154,7 +160,6 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     }
     throw lastErr;
   }
-
 
   /**
    * Deliver a file that is over Telegram's upload limit (FR-13). Video is
@@ -317,7 +322,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
           saveConfig(next);
           setConfig(next);
           audit({ kind: "config.changed", field: "ownerId", detail: String(uid) });
-          await ctx.editMessageText(`✅ You are now the owner (id ${uid}). The bot will only respond to you.`);
+          await ctx.editMessageText(
+            `✅ You are now the owner (id ${uid}). The bot will only respond to you.`,
+          );
         }
       } else {
         await ctx.editMessageText("Owner already configured.");
@@ -411,14 +418,18 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   bot.command("setgroup", async (ctx) => {
     if (ctx.chat.type !== "supergroup") {
-      await ctx.reply("Run /setgroup inside your forum supergroup (with topics enabled), where I'm an admin.");
+      await ctx.reply(
+        "Run /setgroup inside your forum supergroup (with topics enabled), where I'm an admin.",
+      );
       return;
     }
     const cfg = { ...getConfig(), groupId: ctx.chat.id };
     saveConfig(cfg);
     setConfig(cfg);
     audit({ kind: "config.changed", field: "groupId", detail: String(ctx.chat.id) });
-    await ctx.reply(`✅ This group (${ctx.chat.id}) is now the sessions group. Use /new to create sessions here.`);
+    await ctx.reply(
+      `✅ This group (${ctx.chat.id}) is now the sessions group. Use /new to create sessions here.`,
+    );
   });
 
   bot.command("model", async (ctx) => {
@@ -437,7 +448,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   bot.command("new", async (ctx) => {
     const cfg = getConfig();
     if (cfg.groupId === undefined) {
-      await ctx.reply("No sessions group configured. Create a forum supergroup, add me as admin, and run /setgroup there.");
+      await ctx.reply(
+        "No sessions group configured. Create a forum supergroup, add me as admin, and run /setgroup there.",
+      );
       return;
     }
     if (ctx.chat.id !== cfg.groupId) {
@@ -445,7 +458,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       return;
     }
     if (store.list().filter((s) => s.state !== "hibernated").length >= cfg.maxConcurrentSessions) {
-      await ctx.reply(`Reached the max of ${cfg.maxConcurrentSessions} concurrent sessions. /kill one first.`);
+      await ctx.reply(
+        `Reached the max of ${cfg.maxConcurrentSessions} concurrent sessions. /kill one first.`,
+      );
       return;
     }
 
@@ -515,7 +530,8 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   bot.command("kill", async (ctx) => {
     const id = ctx.match.trim();
-    const session = store.get(id) ?? (ctx.msg?.message_thread_id ? store.byTopic(ctx.msg.message_thread_id) : undefined);
+    const session =
+      store.get(id) ?? (ctx.msg?.message_thread_id ? store.byTopic(ctx.msg.message_thread_id) : undefined);
     if (!session) {
       await ctx.reply("Usage: /kill <session-id> (see /sessions)");
       return;
@@ -559,7 +575,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       await ctx.reply(`⚠️ ${res.error}`);
       return;
     }
-    const lines = res.value!.slice(0, 100).map((e) => (e.isDir ? `📁 ${e.name}` : `📄 ${e.name} (${humanSize(e.size)})`));
+    const lines = res
+      .value!.slice(0, 100)
+      .map((e) => (e.isDir ? `📁 ${e.name}` : `📄 ${e.name} (${humanSize(e.size)})`));
     await ctx.reply(`📂 ${dir.dir}\n\n${lines.join("\n") || "(empty)"}`);
   });
 
@@ -618,11 +636,16 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       audit({ kind: "config.changed", field: "allowedDirs.add", detail: value });
       await ctx.reply(`✅ Added. Allowed folders:\n${next.allowedDirs.map((d) => `• ${d}`).join("\n")}`);
     } else if (sub === "remove" && value) {
-      const next = { ...cfg, allowedDirs: cfg.allowedDirs.filter((d) => d.toLowerCase() !== path.resolve(value).toLowerCase()) };
+      const next = {
+        ...cfg,
+        allowedDirs: cfg.allowedDirs.filter((d) => d.toLowerCase() !== path.resolve(value).toLowerCase()),
+      };
       saveConfig(next);
       setConfig(next);
       audit({ kind: "config.changed", field: "allowedDirs.remove", detail: value });
-      await ctx.reply(`✅ Removed. Allowed folders:\n${next.allowedDirs.map((d) => `• ${d}`).join("\n") || "(none)"}`);
+      await ctx.reply(
+        `✅ Removed. Allowed folders:\n${next.allowedDirs.map((d) => `• ${d}`).join("\n") || "(none)"}`,
+      );
     } else if (sub === "timeout" && value && Number.isFinite(Number(value))) {
       const next = { ...cfg, turnTimeoutMinutes: Math.max(1, Math.floor(Number(value))) };
       saveConfig(next);
@@ -650,7 +673,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const cfg = getConfig();
     const session = ctx.msg.message_thread_id
       ? store.byTopic(ctx.msg.message_thread_id)
-      : store.defaultFor(ctx.chat.id) ?? ensureDefaultSession(ctx.chat.id, cfg);
+      : (store.defaultFor(ctx.chat.id) ?? ensureDefaultSession(ctx.chat.id, cfg));
     if (!session) {
       await ctx.reply("No session to receive this file. Open a topic session first.");
       return;
@@ -726,9 +749,10 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   /** Create the implicit read-only default session for the owner's private chat (FR-4). */
   function ensureDefaultSession(chatId: number, cfg: Config): Session | undefined {
-    const cwd = cfg.defaultCwd && isPathAllowed(cfg.defaultCwd, cfg.allowedDirs).allowed
-      ? cfg.defaultCwd
-      : cfg.allowedDirs[0];
+    const cwd =
+      cfg.defaultCwd && isPathAllowed(cfg.defaultCwd, cfg.allowedDirs).allowed
+        ? cfg.defaultCwd
+        : cfg.allowedDirs[0];
     if (!cwd) return undefined;
     const s = store.create({ cwd, model: cfg.defaultModel, mode: "ro", chatId, isDefault: true });
     audit({ kind: "session.created", sessionId: s.id, cwd, model: cfg.defaultModel, mode: "ro" });
@@ -746,11 +770,19 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       if (!res.ok) {
         // Name the path and record it: without this you get identical, useless
         // warnings and no way to tell which folder needs allowing.
-        audit({ kind: "guardrail.blocked", tool: "telegram_send_file", rule: "path allowlist", detail: filePath });
-        await send(target, `⚠️ Blocked file send: ${res.error}
+        audit({
+          kind: "guardrail.blocked",
+          tool: "telegram_send_file",
+          rule: "path allowlist",
+          detail: filePath,
+        });
+        await send(
+          target,
+          `⚠️ Blocked file send: ${res.error}
 ${filePath}
 
-Allow it with: /config add <folder>`);
+Allow it with: /config add <folder>`,
+        );
         return { ok: false, error: `${res.error}: ${filePath}` };
       }
 
@@ -795,8 +827,11 @@ Allow it with: /config add <folder>`);
         return { ok: true, messageId: sent.message_id };
       } catch (err) {
         const error = `upload failed: ${String(err)}`;
-        await send(target, `⚠️ Could not upload ${filePath}
-${String(err)}`);
+        await send(
+          target,
+          `⚠️ Could not upload ${filePath}
+${String(err)}`,
+        );
         return { ok: false, error };
       }
     },

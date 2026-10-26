@@ -47,19 +47,19 @@ Telegram ⇄ (long polling, no open ports) ⇄ ┌──────── daemo
 
 ### Modules (`src/`)
 
-| Module | Responsibility |
-|---|---|
-| `config/` | Zod-validated `config.json` + `.env` loading. |
-| `security/paths.ts` | Path canonicalization + folder allowlist (anti-traversal, anti-symlink, UNC/device rejection, Windows case-folding). |
-| `security/commands.ts` | Hard deny-list of catastrophic command classes. |
-| `security/hook.ts` | The PreToolUse hook binary — the enforcement point. |
-| `security/guardrails.ts` | Generates the `--settings` file that installs the hook. |
-| `sessions/` | Session store, CLI flag builder, stream-json parser, spawn manager. |
-| `files/` | Deterministic `ls`/`find`/`get`/upload, always through the allowlist. |
-| `ipc/` | Loopback-only HTTP server + protocol for the MCP bridge. |
-| `mcp/` | The `telegram-bridge` MCP server and its spawn config. |
-| `bot/` | grammY wiring: auth, commands, routing, rate limiting, pending questions. |
-| `audit/` | Append-only JSONL audit trail. |
+| Module                   | Responsibility                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `config/`                | Zod-validated `config.json` + `.env` loading.                                                                        |
+| `security/paths.ts`      | Path canonicalization + folder allowlist (anti-traversal, anti-symlink, UNC/device rejection, Windows case-folding). |
+| `security/commands.ts`   | Hard deny-list of catastrophic command classes.                                                                      |
+| `security/hook.ts`       | The PreToolUse hook binary — the enforcement point.                                                                  |
+| `security/guardrails.ts` | Generates the `--settings` file that installs the hook.                                                              |
+| `sessions/`              | Session store, CLI flag builder, stream-json parser, spawn manager.                                                  |
+| `files/`                 | Deterministic `ls`/`find`/`get`/upload, always through the allowlist.                                                |
+| `ipc/`                   | Loopback-only HTTP server + protocol for the MCP bridge.                                                             |
+| `mcp/`                   | The `telegram-bridge` MCP server and its spawn config.                                                               |
+| `bot/`                   | grammY wiring: auth, commands, routing, rate limiting, pending questions.                                            |
+| `audit/`                 | Append-only JSONL audit trail.                                                                                       |
 
 **Files over 50 MB.** The cloud Bot API caps bot uploads at 50 MB. The daemon handles this in
 two tiers, best first:
@@ -90,7 +90,7 @@ working one. General internet was fine throughout — the loss was specific to
 `api.telegram.org`.
 
 **Every upload prefers the local server**, not just oversize ones. Small files used to take
-the cloud path and were therefore the *only* ones that failed on a lossy link — exactly
+the cloud path and were therefore the _only_ ones that failed on a lossy link — exactly
 backwards. A caption longer than Telegram's 1024-character cap is sent as its own message and
 the file keeps a short label, instead of failing the whole send with
 `message caption is too long`.
@@ -114,16 +114,16 @@ reported as sent.
 3. **Secrets** — The bot token lives only in `.env` (git-ignored). It is stripped from the environment handed to spawned agents.
 4. **Filesystem** — `isPathAllowed` canonicalizes with `realpath`, rejects `..` escapes, symlink/junction escapes, UNC paths, and Windows device names (`CON`, `NUL`, …), and compares case-insensitively on Windows.
 5. **Hard deny-list** — Blocks disk formatting, shutdown/reboot, registry writes, `%WINDIR%`/`Program Files` edits, credential-store access, service/scheduled-task persistence, download-and-execute (`iex`, `curl | sh`), firewall/Defender tampering, and more — **always, even in `full` mode**.
-6. **Anti prompt-injection** — Guardrails outside the LLM (ADR-3), owner-fixed message destination (ADR-5), human confirmation for destructive ops, `/panic`, and a full audit log. *Principle: content the agent reads never gains capabilities — only you grant them.*
+6. **Anti prompt-injection** — Guardrails outside the LLM (ADR-3), owner-fixed message destination (ADR-5), human confirmation for destructive ops, `/panic`, and a full audit log. _Principle: content the agent reads never gains capabilities — only you grant them._
 7. **Rate limiting** — Caps updates/minute and concurrent sessions.
 
 ### Permission modes
 
-| Mode | `--permission-mode` | Behavior |
-|---|---|---|
-| `ro`   | `plan`             | Read-only: proposes, never edits. |
-| `edit` | `acceptEdits`      | Auto-accepts file edits in the allowlist. |
-| `full` | `bypassPermissions`| Auto-accepts everything **the guardrail hooks still allow**. |
+| Mode   | `--permission-mode` | Behavior                                                     |
+| ------ | ------------------- | ------------------------------------------------------------ |
+| `ro`   | `plan`              | Read-only: proposes, never edits.                            |
+| `edit` | `acceptEdits`       | Auto-accepts file edits in the allowlist.                    |
+| `full` | `bypassPermissions` | Auto-accepts everything **the guardrail hooks still allow**. |
 
 The hooks fire under **all** modes — `full` is "auto-approve within the guardrails", not "no guardrails".
 
@@ -132,6 +132,7 @@ The hooks fire under **all** modes — `full` is "auto-approve within the guardr
 ## Setup from scratch
 
 ### Prerequisites
+
 - Windows 11, Node.js ≥ 22.5
 - The `claude` CLI installed and logged in (`claude` runs with your subscription)
 
@@ -158,6 +159,7 @@ Claude Code config).
 ## Manual setup, step by step
 
 ### 1. Create the bot
+
 1. In Telegram, message [@BotFather](https://t.me/BotFather) → `/newbot` → get the token.
 2. Copy `.env.example` to `.env` and paste the token:
    ```
@@ -165,25 +167,29 @@ Claude Code config).
    ```
 
 ### 2. Install & build
+
 ```bash
 npm ci
 npm run build
 ```
 
 ### 3. First run & claim ownership
+
 ```bash
 npm start            # or: npm run dev
 ```
+
 Open a **private chat** with your bot and send `/start`. Since no owner is set yet, the bot replies with your numeric id and a **Claim ownership** button. Tap it — from then on the bot answers only you. (First tap wins; do this immediately after first launch.)
 
 On first run a `config.json` is created with `allowedDirs = [~/Downloads, ~/Desktop]`. Adjust with `/config add <abs path>` / `/config remove <abs path>`.
 
 ### 4. (Optional) Set up the sessions group for multi-session topics
-1. Create a Telegram **group**, enable **Topics** (Forum) in its settings, and add your bot as an **admin** with *Manage topics*.
+
+1. Create a Telegram **group**, enable **Topics** (Forum) in its settings, and add your bot as an **admin** with _Manage topics_.
 2. In that group, send `/setgroup`.
 3. Now `/new Downloads sonnet edit` creates a session in its own topic.
 
-### 5. (Optional) Register the bridge for *every* Claude Code session (FR-19)
+### 5. (Optional) Register the bridge for _every_ Claude Code session (FR-19)
 
 By default the `telegram_*` tools exist only inside sessions the daemon launches.
 Register the bridge once at user scope and **any** Claude Code session on this
@@ -207,7 +213,7 @@ bot yet, calls are refused rather than misrouted.
 ### 5b. Replying to a registered session (two-way)
 
 A registered session's messages are prefixed with its label, e.g. `[fineract] build finished`.
-**Swipe/long-press that message in Telegram and reply** — your answer goes back to *that*
+**Swipe/long-press that message in Telegram and reply** — your answer goes back to _that_
 session, not to the default chat session. `/sessions` lists which sessions are connected
 and which are waiting on you.
 
@@ -218,7 +224,7 @@ For the agent side, the bridge exposes:
   during long work).
 
 > **Protocol limit, worth knowing.** MCP is request/response: the daemon cannot push into a
-> running agent's loop. A session only receives your reply while it is *asking* for one
+> running agent's loop. A session only receives your reply while it is _asking_ for one
 > (`wait_for_reply` / `telegram_wait_reply`). If it already finished its turn and is idle at
 > its own terminal, your reply is delivered to its inbox but nothing reads it — the bot tells
 > you when the session is gone entirely. Agents that want a conversation must wait for it.
@@ -244,34 +250,36 @@ Bound to `127.0.0.1` only — nothing is exposed to the network. Inspect it with
 `docker logs telegram-bot-api`. The daemon probes it before every oversize send and silently
 falls back to compressing when it is down.
 
-> **Why not Telegram Premium?** Premium raises the limit for *user* accounts to 4 GB. Bots do
+> **Why not Telegram Premium?** Premium raises the limit for _user_ accounts to 4 GB. Bots do
 > not benefit — the Bot API stays at 50 MB regardless. Running your own server is the only way
 > to lift a bot's limit.
 
 ### 6. Auto-start on logon (Windows)
+
 ```powershell
 pwsh -File scripts/install-windows.ps1     # registers a Scheduled Task
 Start-ScheduledTask -TaskName TelegramBotMCP
 ```
+
 Uninstall with `scripts/uninstall-windows.ps1`. The daemon runs in your user session so it uses your `claude` login, and restarts automatically on failure or reboot.
 
 ---
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `/start` | Greet / claim ownership on first run. |
-| `/status` | Sessions, uptime, default model/mode, allowed folders, lock state. |
-| `/new <folder> [model] [mode]` | New session in a group topic. |
-| `/sessions` · `/kill <id>` · `/info` | List / end / inspect sessions. |
-| `/model <opus\|sonnet\|haiku>` | Set the default model. |
-| `/ls [path]` · `/find <query>` · `/get <path>` | Browse, search, fetch files. |
-| `/config [add\|remove\|timeout] …` | Manage the allowlist and defaults (with confirmation). |
-| `/setgroup` | Register the current forum group for sessions. |
-| `/panic` · `/unlock` | Kill everything & lock / resume. |
-| plain message | Talk to the topic's session (in a group) or the read-only default session (in private). |
-| send a file | Saved into the active session's folder (≤ 20 MB). |
+| Command                                        | Description                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `/start`                                       | Greet / claim ownership on first run.                                                   |
+| `/status`                                      | Sessions, uptime, default model/mode, allowed folders, lock state.                      |
+| `/new <folder> [model] [mode]`                 | New session in a group topic.                                                           |
+| `/sessions` · `/kill <id>` · `/info`           | List / end / inspect sessions.                                                          |
+| `/model <opus\|sonnet\|haiku>`                 | Set the default model.                                                                  |
+| `/ls [path]` · `/find <query>` · `/get <path>` | Browse, search, fetch files.                                                            |
+| `/config [add\|remove\|timeout] …`             | Manage the allowlist and defaults (with confirmation).                                  |
+| `/setgroup`                                    | Register the current forum group for sessions.                                          |
+| `/panic` · `/unlock`                           | Kill everything & lock / resume.                                                        |
+| plain message                                  | Talk to the topic's session (in a group) or the read-only default session (in private). |
+| send a file                                    | Saved into the active session's folder (≤ 20 MB).                                       |
 
 The agent also has three MCP tools to reach you: `telegram_send_message`, `telegram_send_file`, `telegram_ask_user` (buttons) — all routed only to your chat.
 
@@ -286,6 +294,7 @@ npm run smoke:guardrail    # REAL claude session: proves guardrails block in ful
 ```
 
 What's verified automatically:
+
 - **164 unit/integration tests** across security, sessions, files, bot, IPC, and MCP.
 - **Real guardrail E2E** (`smoke:guardrail`): a live `claude` session in `full` mode is **blocked from writing outside the allowlist** and from running deny-listed commands; benign work inside the allowlist succeeds.
 - **Real MCP bridge E2E**: the actual bridge subprocess is driven by an MCP client, and every tool call routes through the loopback IPC to the token's **fixed** destination.
@@ -304,7 +313,7 @@ The final human-in-the-loop step (you chatting from your phone) is the one part 
   later is a contained change.
 - **FR-16 (destructive-op confirmation)** is realized through **permission modes +
   the guardrail hook**, not a per-edit Telegram button. `ro` never edits; `edit`/`full`
-  auto-apply changes *inside* the allowlist while the hook hard-blocks writes outside it
+  auto-apply changes _inside_ the allowlist while the hook hard-blocks writes outside it
   and all deny-listed commands — even in `full`. There is intentionally **no unconfirmed
   bot-level delete command**. Allowlist changes via `/config` still require a button
   confirmation, and the agent can ask you to confirm anything via `telegram_ask_user`.
@@ -324,4 +333,5 @@ docs/         E2E.md
 ```
 
 ## License
+
 MIT — see `LICENSE`.

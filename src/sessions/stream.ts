@@ -40,12 +40,7 @@ export interface ResultEvent {
   durationMs?: number;
   costUsd?: number;
 }
-export type StreamEvent =
-  | SystemEvent
-  | AssistantTextEvent
-  | ToolUseEvent
-  | ToolResultEvent
-  | ResultEvent;
+export type StreamEvent = SystemEvent | AssistantTextEvent | ToolUseEvent | ToolResultEvent | ResultEvent;
 
 /** Parse one NDJSON line into zero or more normalized events. Never throws. */
 export function parseStreamLine(line: string): StreamEvent[] {
@@ -82,8 +77,7 @@ export function parseStreamLine(line: string): StreamEvent[] {
           out.push({
             type: "tool_use",
             name: typeof block.name === "string" ? block.name : "tool",
-            input:
-              block.input && typeof block.input === "object" ? block.input : {},
+            input: block.input && typeof block.input === "object" ? block.input : {},
             id: typeof block.id === "string" ? block.id : "",
           });
         }

@@ -81,20 +81,20 @@ async function main(): Promise<void> {
   // reconnects on its own, so we just retry the menu in the background.
   const publishCommands = async (): Promise<void> => {
     await bot.api.setMyCommands([
-    { command: "status", description: "Sessions, uptime, config" },
-    { command: "new", description: "New session: /new <folder> [model] [mode]" },
-    { command: "sessions", description: "List sessions" },
-    { command: "kill", description: "End a session: /kill <id>" },
-    { command: "info", description: "This topic's session details" },
-    { command: "model", description: "Set default model" },
-    { command: "ls", description: "List a folder" },
-    { command: "find", description: "Search files by name" },
-    { command: "get", description: "Send a file here: /get <path>" },
-    { command: "config", description: "Manage folders & defaults" },
-    { command: "setgroup", description: "Register this forum group" },
-    { command: "panic", description: "Kill everything and lock" },
-    { command: "unlock", description: "Resume after /panic" },
-    { command: "help", description: "Show help" },
+      { command: "status", description: "Sessions, uptime, config" },
+      { command: "new", description: "New session: /new <folder> [model] [mode]" },
+      { command: "sessions", description: "List sessions" },
+      { command: "kill", description: "End a session: /kill <id>" },
+      { command: "info", description: "This topic's session details" },
+      { command: "model", description: "Set default model" },
+      { command: "ls", description: "List a folder" },
+      { command: "find", description: "Search files by name" },
+      { command: "get", description: "Send a file here: /get <path>" },
+      { command: "config", description: "Manage folders & defaults" },
+      { command: "setgroup", description: "Register this forum group" },
+      { command: "panic", description: "Kill everything and lock" },
+      { command: "unlock", description: "Resume after /panic" },
+      { command: "help", description: "Show help" },
     ]);
   };
   void retryForever(publishCommands, "setMyCommands");
@@ -118,7 +118,11 @@ async function main(): Promise<void> {
   }
 
   log.info(
-    { owner: config.ownerId || "UNCLAIMED (send /start to claim)", allowed: config.allowedDirs, ipcPort: config.ipcPort },
+    {
+      owner: config.ownerId || "UNCLAIMED (send /start to claim)",
+      allowed: config.allowedDirs,
+      ipcPort: config.ipcPort,
+    },
     "bridge starting (long polling)",
   );
 

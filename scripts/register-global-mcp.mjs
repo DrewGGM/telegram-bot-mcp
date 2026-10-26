@@ -31,11 +31,18 @@ const token = loadOrCreateGlobalToken();
 const url = `http://127.0.0.1:${config.ipcPort}`;
 
 const args = [
-  "mcp", "add", "telegram-bridge",
-  "-s", "user",
-  "-e", `TBM_IPC_URL=${url}`,
-  "-e", `TBM_IPC_TOKEN=${token}`,
-  "--", "node", serverPath,
+  "mcp",
+  "add",
+  "telegram-bridge",
+  "-s",
+  "user",
+  "-e",
+  `TBM_IPC_URL=${url}`,
+  "-e",
+  `TBM_IPC_TOKEN=${token}`,
+  "--",
+  "node",
+  serverPath,
 ];
 
 console.log("Registering the telegram-bridge for every Claude Code session on this machine.\n");

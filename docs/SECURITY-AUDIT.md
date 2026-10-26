@@ -10,7 +10,7 @@ with a test or a command before being fixed.
 
 **Impact:** file disclosure and exfiltration by whoever reached the bot first.
 
-Between first launch and the moment you tap *Claim ownership*, `config.ownerId`
+Between first launch and the moment you tap _Claim ownership_, `config.ownerId`
 is `0`. `decideAuth` correctly returned `bootstrap` for a private chat, but the
 middleware then called `next()` for **every** update, and the `/ls`, `/find`,
 `/get` and `/config` handlers never re-checked the owner. A stranger who knew
@@ -44,7 +44,7 @@ holding the same token.
 
 ### 3. LOW — Dead validation in `/config add` (fixed)
 
-`if (… || !check)` tested truthiness of an *object*, so it was always false and
+`if (… || !check)` tested truthiness of an _object_, so it was always false and
 never fired. The path was also not required to be a directory, so a plain file
 could be added to the folder allowlist. Now requires absolute + existing +
 `isDirectory()`.
@@ -76,7 +76,7 @@ could be added to the folder allowlist. Now requires absolute + existing +
 ## Known and accepted limits
 
 - The command deny-list is a **net, not a sandbox**: it blocks catastrophic
-  command *classes* by pattern and a determined, obfuscated command could evade
+  command _classes_ by pattern and a determined, obfuscated command could evade
   it. Path confinement, not the deny-list, is the load-bearing control for
   writes; `/panic` is the backstop.
 - `Read` is deliberately allowed outside the allowlist. Because the message

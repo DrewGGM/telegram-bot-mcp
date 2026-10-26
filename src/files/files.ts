@@ -32,7 +32,7 @@ export function listDir(target: string, allowedDirs: readonly string[]): FileRes
 
   const entries: DirEntry[] = readdirSync(check.resolved, { withFileTypes: true }).map((d) => {
     const full = path.join(check.resolved, d.name);
-    let size = 0;
+    let size: number;
     try {
       size = d.isFile() ? statSync(full).size : 0;
     } catch {
@@ -71,7 +71,7 @@ export function findFiles(
       if (d.isDirectory()) {
         walk(full, depth + 1);
       } else if (d.name.toLowerCase().includes(needle)) {
-        let size = 0;
+        let size: number;
         try {
           size = statSync(full).size;
         } catch {

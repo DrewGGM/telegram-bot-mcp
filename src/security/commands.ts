@@ -20,16 +20,23 @@ interface DenyRule {
 
 const DENY_RULES: DenyRule[] = [
   { name: "disk destruction", pattern: /\b(format(\.com)?\s+[a-z]:|diskpart|mkfs(\.\w+)?|fdisk|dd\s+if=)/i },
-  { name: "system power", pattern: /\b(shutdown(\.exe)?\b|restart-computer|stop-computer|reboot\b|logoff\b)/i },
+  {
+    name: "system power",
+    pattern: /\b(shutdown(\.exe)?\b|restart-computer|stop-computer|reboot\b|logoff\b)/i,
+  },
   {
     name: "registry write",
-    pattern: /\b(reg(\.exe)?\s+(add|delete|import)|regedit(\s|$)|(set|new|remove)-itemproperty\s+[^|]*hk(lm|cu|:))/i,
+    pattern:
+      /\b(reg(\.exe)?\s+(add|delete|import)|regedit(\s|$)|(set|new|remove)-itemproperty\s+[^|]*hk(lm|cu|:))/i,
   },
   {
     name: "persistence (services/tasks)",
     pattern: /\b(schtasks\s+\/create|sc(\.exe)?\s+(create|config)|register-scheduledtask|new-service)\b/i,
   },
-  { name: "boot/recovery tampering", pattern: /\b(bcdedit|vssadmin\s+delete|wbadmin\s+delete|cipher\s+\/w)/i },
+  {
+    name: "boot/recovery tampering",
+    pattern: /\b(bcdedit|vssadmin\s+delete|wbadmin\s+delete|cipher\s+\/w)/i,
+  },
   {
     name: "system dir modification",
     pattern:
@@ -41,16 +48,27 @@ const DENY_RULES: DenyRule[] = [
   },
   {
     name: "download-and-execute",
-    pattern: /\b(iex\b|invoke-expression|powershell[^|]*-enc(odedcommand)?\b|(curl|wget|iwr|invoke-webrequest)[^|]*\|\s*(sh|bash|pwsh|powershell|iex|node|python))/i,
+    pattern:
+      /\b(iex\b|invoke-expression|powershell[^|]*-enc(odedcommand)?\b|(curl|wget|iwr|invoke-webrequest)[^|]*\|\s*(sh|bash|pwsh|powershell|iex|node|python))/i,
   },
   {
     name: "credential access",
     pattern:
       /\b(cmdkey|vaultcmd|mimikatz|lsass|procdump[^|]*lsass)\b|\\(credentials|login data|cookies)\b|dpapi(::|\s)/i,
   },
-  { name: "firewall/defender tampering", pattern: /\b(netsh\s+(advfirewall|firewall)\s+(set|add|delete)|set-mppreference|add-mppreference|defender[^|]*-disable)/i },
-  { name: "user/group manipulation", pattern: /\b(net\s+(user|localgroup)\b[^|&;]*(\/add|\/delete)|new-localuser|add-localgroupmember)\b/i },
-  { name: "shutdown of this bridge", pattern: /\b(stop-process|taskkill)\b[^|&;]*(telegram-bot-mcp|tbm-daemon)/i },
+  {
+    name: "firewall/defender tampering",
+    pattern:
+      /\b(netsh\s+(advfirewall|firewall)\s+(set|add|delete)|set-mppreference|add-mppreference|defender[^|]*-disable)/i,
+  },
+  {
+    name: "user/group manipulation",
+    pattern: /\b(net\s+(user|localgroup)\b[^|&;]*(\/add|\/delete)|new-localuser|add-localgroupmember)\b/i,
+  },
+  {
+    name: "shutdown of this bridge",
+    pattern: /\b(stop-process|taskkill)\b[^|&;]*(telegram-bot-mcp|tbm-daemon)/i,
+  },
 ];
 
 export function checkCommand(command: string): CommandCheck {

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+data/
+package-lock.json
+CHANGELOG.md
+BLUEPRINT.md

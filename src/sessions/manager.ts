@@ -115,7 +115,11 @@ export class SessionManager {
             break;
           case "result":
             sawResult = true;
-            cb.onResult?.({ text: ev.text, isError: ev.isError, ...(ev.durationMs !== undefined ? { ms: ev.durationMs } : {}) });
+            cb.onResult?.({
+              text: ev.text,
+              isError: ev.isError,
+              ...(ev.durationMs !== undefined ? { ms: ev.durationMs } : {}),
+            });
             break;
         }
       }
@@ -152,7 +156,11 @@ export class SessionManager {
         audit({ kind: "turn.end", sessionId: session.id, ok: code === 0 && sawResult, ms });
 
         if (code !== 0 && !sawResult) {
-          cb.onError?.(stderr.trim() ? `Claude exited (code ${code}): ${stderr.trim().slice(0, 500)}` : `Claude exited with code ${code}.`);
+          cb.onError?.(
+            stderr.trim()
+              ? `Claude exited (code ${code}): ${stderr.trim().slice(0, 500)}`
+              : `Claude exited with code ${code}.`,
+          );
         }
         resolve();
       });
