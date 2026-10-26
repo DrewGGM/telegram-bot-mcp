@@ -175,6 +175,7 @@ export class IpcServer {
       if (route === IPC_ROUTES.sendMessage) {
         const messageId = await this.bridge.sendMessage(target, label + String(body.text ?? ""));
         if (instance && messageId !== undefined) this.instances.claimMessage(messageId, instance.id);
+        log.info({ messageId, instance: instance?.label ?? null }, "bridge message sent");
         const out: SendMessageResult = { ok: true, ...(messageId !== undefined ? { messageId } : {}) };
         return json(res, 200, out);
       }

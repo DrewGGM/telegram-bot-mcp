@@ -30,6 +30,7 @@ import {
   localFirstTransformer,
   LOCAL_SEND_LIMIT,
 } from "../telegram/localApi.js";
+import { pollingWatchdog } from "../telegram/polling.js";
 import {
   GLOBAL_SESSION_ID,
   type BridgeTarget,
@@ -125,6 +126,8 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   bot.api.config.use(
     localFirstTransformer({ getApiRoot: () => getConfig().localApiRoot, token: deps.token }),
   );
+  // A lost long-poll response must not leave the bot deaf for minutes.
+  bot.api.config.use(pollingWatchdog());
   const rate = new RateLimiter(getConfig().rateLimitPerMinute);
 
   // ---- low-level send helpers -------------------------------------------------
@@ -301,6 +304,22 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
   }
 
   // ---- middleware -------------------------------------------------------------
+
+  // One line per incoming update (no message text), so "my reply never
+  // arrived" can be told apart from "it arrived and was routed somewhere else".
+  bot.use(async (ctx, next) => {
+    log.info(
+      {
+        update: ctx.update.update_id,
+        kind: Object.keys(ctx.update).find((k) => k !== "update_id"),
+        chat: ctx.chat?.id,
+        from: ctx.from?.id,
+        replyTo: ctx.message?.reply_to_message?.message_id,
+      },
+      "update received",
+    );
+    return next();
+  });
 
   bot.use(authMiddleware(getConfig));
 
@@ -752,6 +771,15 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const repliedTo = ctx.msg.reply_to_message?.message_id;
     if (repliedTo !== undefined && deps.instances) {
       const origin = deps.instances.ownerOfMessage(repliedTo);
+      log.info(
+        {
+          repliedTo,
+          origin: origin
+            ? { label: origin.label, alive: origin.alive, push: origin.push, waiting: origin.waiting }
+            : null,
+        },
+        "owner reply received",
+      );
       if (origin) {
         if (origin.alive && deps.instances.deliver(origin.id, text)) {
           const mode = origin.waiting ? "waiting" : origin.push ? "push" : "queued";
