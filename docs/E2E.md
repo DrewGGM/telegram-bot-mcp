@@ -29,6 +29,7 @@ channel mode is interactive-only).
 - ✅ Hook binary: 4/4 process-level contract checks.
 - ✅ Desktop bridge live (`smoke:global`): 3/3 against the running daemon — four tools, channel
   capability declared, and Telegram accepted the message.
+- ✅ Channel mode live (2026-10-26): a session started with `scriptsclaude-tg.cmd` sent a message, the owner swipe-replied from the phone, the daemon routed it in push mode (`reply.routed` in the audit log) and the session answered on Telegram 4 s later with no terminal input.
 - ✅ Earlier live runs (v0.2.0): guardrail smoke 5/5, turn pipeline 2/2, MCP tools in a live agent 3/3,
   swipe-reply returned to the asking session, production use from a phone including a guardrail
   block recorded in the audit log.

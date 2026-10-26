@@ -30,6 +30,15 @@ and validated below.
 
 ### Fixed
 
+- **The bot could send but never receive.** Incoming messages were lost in three ways: a
+  long-poll response lost on a lossy link left grammY waiting up to 500 s while retrying
+  silently; the first watchdog for that passed grammY's polyfill AbortSignal to
+  `AbortSignal.any`, which made every `getUpdates` fail before reaching the network; and
+  `drop_pending_updates` discarded everything sent while the daemon restarted. Each poll now
+  has its own deadline (linked by hand to grammY's signal, with a regression test on the real
+  polyfill), polling failures are logged, pending updates survive restarts, and messages older
+  than 15 minutes are skipped. Every incoming update and every bridge message id is logged.
+
 - **`/panic`, button taps and confirmations were blocked while a turn ran.** grammY handles
   long-polling updates one at a time and the handlers awaited whole Claude turns and button
   taps, so a `telegram_ask_user` during a turn and `/config add` could only resolve after a
