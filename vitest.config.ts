@@ -6,9 +6,10 @@ export default defineConfig({
     environment: "node",
     coverage: {
       provider: "v8",
-      // The TDD-critical modules (security baseline §4.2). Their pure logic must
-      // stay ≥90%. I/O glue (guardrails.ts writer, hook.ts main()) is excluded —
-      // it is exercised by the real-process smoke tests instead.
+      // The TDD-critical modules (security baseline §4.2) plus the pure routing
+      // logic of the bridge. Their logic must stay ≥90%. I/O glue (guardrails.ts
+      // writer, hook.ts main(), the daemon entrypoint) is excluded — it is
+      // exercised by the real-process smoke tests instead.
       include: [
         "src/security/paths.ts",
         "src/security/commands.ts",
@@ -21,6 +22,9 @@ export default defineConfig({
         "src/sessions/cli.ts",
         "src/sessions/store.ts",
         "src/files/files.ts",
+        "src/ipc/instances.ts",
+        "src/mcp/replies.ts",
+        "src/mcp/channel.ts",
       ],
       thresholds: {
         statements: 90,

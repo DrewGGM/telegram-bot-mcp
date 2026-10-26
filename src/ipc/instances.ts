@@ -1,17 +1,21 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * Registry of live *foreign* bridge instances — Claude Code sessions that the
- * daemon did NOT spawn, reaching us through the desktop registration (FR-19).
+ * Registry of live bridge instances — one per Claude Code session that has the
+ * telegram-bridge attached, whether the daemon spawned it (per-turn token) or
+ * it is a desktop session reaching us through the persistent registration
+ * (FR-19).
  *
  * Each session runs its own MCP bridge process, so one process == one session:
  * that 1:1 relationship is what gives us a stable identity to reply to. The
  * daemon mints the id (unguessable, so one session cannot claim another's
  * inbox) and hands it back at /register.
  *
- * Replies flow the only way MCP allows: the daemon parks them in an inbox and
- * the session collects them when it calls telegram_wait_reply. A session that
- * has already finished its turn simply never collects — see README.
+ * Replies are pulled, not pushed: the bridge long-polls `waitForReply` for as
+ * long as it lives, and decides locally whether to hand the text to a blocked
+ * tool call, inject it into the Claude session as a channel event, or keep it
+ * until the agent asks. A bridge that stops polling is dead within
+ * {@link LIVENESS_MS}; its inbox is dropped by `prune`.
  */
 
 export interface ForeignInstance {
@@ -19,31 +23,65 @@ export interface ForeignInstance {
   /** Short human label shown in Telegram, e.g. the project folder name. */
   label: string;
   cwd: string;
+  /** IPC session the registering token belongs to (`global` for desktop sessions). */
+  sessionId: string;
   registeredAt: number;
+  /** Last time the bridge process talked to us — refreshed by every call, including polls. */
   lastSeenAt: number;
-  /** Owner replies waiting to be collected by this session. */
+  /** The bridge can inject replies straight into its Claude session (channel mode). */
+  push: boolean;
+  /** The agent is blocked in a wait tool right now. */
+  waiting: boolean;
+  /** Owner replies not yet collected by the bridge. */
   inbox: string[];
-  /** Resolvers for in-flight telegram_wait_reply calls. */
+  /** Resolvers for in-flight `waitForReply` calls, oldest first. */
   waiters: ((text: string) => void)[];
 }
+
+export interface RegisterInput {
+  label: string;
+  cwd: string;
+  sessionId: string;
+  push?: boolean;
+}
+
+export interface MessageOrigin {
+  id: string;
+  label: string;
+  sessionId: string;
+  /** The bridge process has polled recently, so a reply will actually be read. */
+  alive: boolean;
+  push: boolean;
+  waiting: boolean;
+}
+
+/** A bridge polls at least once per minute; anything quieter than this is gone. */
+export const LIVENESS_MS = 2 * 60_000;
+
+const MAX_LABEL = 40;
+const MAX_TRACKED_MESSAGES = 2000;
 
 export class InstanceRegistry {
   private readonly byId = new Map<string, ForeignInstance>();
   /**
-   * Telegram message id -> who sent it. The label is stored alongside the id so
-   * we can still name the session in a reply even after it has exited.
+   * Telegram message id -> who sent it. The label and session are stored
+   * alongside the id so we can still name the session in a reply after it has
+   * exited.
    */
-  private readonly messageOwner = new Map<number, { id: string; label: string }>();
+  private readonly messageOwner = new Map<number, { id: string; label: string; sessionId: string }>();
 
-  register(label: string, cwd: string): ForeignInstance {
+  register(input: RegisterInput): ForeignInstance {
     const id = randomBytes(12).toString("hex");
     const now = Date.now();
     const instance: ForeignInstance = {
       id,
-      label: label.slice(0, 40) || "claude",
-      cwd,
+      label: input.label.slice(0, MAX_LABEL) || "claude",
+      cwd: input.cwd,
+      sessionId: input.sessionId,
       registeredAt: now,
       lastSeenAt: now,
+      push: input.push === true,
+      waiting: false,
       inbox: [],
       waiters: [],
     };
@@ -51,22 +89,45 @@ export class InstanceRegistry {
     return instance;
   }
 
+  /** Look up an instance and record that its bridge is alive. */
   get(id: string): ForeignInstance | undefined {
     const found = this.byId.get(id);
     if (found) found.lastSeenAt = Date.now();
     return found;
   }
 
+  /** Look up without touching `lastSeenAt` (for listings and tests). */
+  peek(id: string): ForeignInstance | undefined {
+    return this.byId.get(id);
+  }
+
   list(): ForeignInstance[] {
     return [...this.byId.values()];
   }
 
+  isAlive(id: string, now: number = Date.now()): boolean {
+    const inst = this.byId.get(id);
+    return inst !== undefined && now - inst.lastSeenAt <= LIVENESS_MS;
+  }
+
+  setPresence(id: string, presence: { waiting?: boolean; push?: boolean }): boolean {
+    const inst = this.get(id);
+    if (!inst) return false;
+    if (presence.waiting !== undefined) inst.waiting = presence.waiting;
+    if (presence.push !== undefined) inst.push = presence.push;
+    return true;
+  }
+
   /** Remember which session a delivered Telegram message came from. */
   claimMessage(messageId: number, instanceId: string): void {
-    const label = this.byId.get(instanceId)?.label ?? "claude";
-    this.messageOwner.set(messageId, { id: instanceId, label });
+    const inst = this.byId.get(instanceId);
+    this.messageOwner.set(messageId, {
+      id: instanceId,
+      label: inst?.label ?? "claude",
+      sessionId: inst?.sessionId ?? "",
+    });
     // Keep the map bounded; old messages are rarely replied to.
-    if (this.messageOwner.size > 2000) {
+    if (this.messageOwner.size > MAX_TRACKED_MESSAGES) {
       const oldest = this.messageOwner.keys().next();
       if (!oldest.done) this.messageOwner.delete(oldest.value);
     }
@@ -77,15 +138,23 @@ export class InstanceRegistry {
    * even when the session has since exited (`alive: false`) so the caller can
    * say so instead of silently routing the reply somewhere else.
    */
-  ownerOfMessage(messageId: number): { id: string; label: string; alive: boolean } | undefined {
+  ownerOfMessage(messageId: number, now: number = Date.now()): MessageOrigin | undefined {
     const entry = this.messageOwner.get(messageId);
     if (!entry) return undefined;
-    return { id: entry.id, label: entry.label, alive: this.get(entry.id) !== undefined };
+    const inst = this.byId.get(entry.id);
+    return {
+      id: entry.id,
+      label: entry.label,
+      sessionId: entry.sessionId,
+      alive: inst !== undefined && now - inst.lastSeenAt <= LIVENESS_MS,
+      push: inst?.push ?? false,
+      waiting: inst?.waiting ?? false,
+    };
   }
 
   /**
-   * Deliver an owner reply. Hands it straight to a waiting call when the
-   * session is blocked on telegram_wait_reply, otherwise queues it.
+   * Deliver an owner reply. Hands it straight to a waiting poll when the bridge
+   * is blocked in `waitForReply`, otherwise queues it for the next poll.
    */
   deliver(instanceId: string, text: string): boolean {
     const instance = this.byId.get(instanceId);
@@ -97,29 +166,50 @@ export class InstanceRegistry {
   }
 
   /**
-   * Collect the next reply for a session, waiting up to `timeoutMs`.
-   * Resolves to undefined on timeout so the agent can decide what to do.
+   * Collect the next reply for a session, waiting up to `timeoutMs`. Resolves to
+   * undefined on timeout, or when `signal` aborts (the bridge hung up before an
+   * answer arrived — the reply then stays queued instead of being handed to a
+   * connection nobody is reading).
    */
-  waitForReply(instanceId: string, timeoutMs: number): Promise<string | undefined> {
-    const instance = this.byId.get(instanceId);
+  waitForReply(instanceId: string, timeoutMs: number, signal?: AbortSignal): Promise<string | undefined> {
+    const instance = this.get(instanceId);
     if (!instance) return Promise.resolve(undefined);
     const queued = instance.inbox.shift();
     if (queued !== undefined) return Promise.resolve(queued);
+    if (signal?.aborted) return Promise.resolve(undefined);
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        instance.waiters = instance.waiters.filter((w) => w !== onReply);
-        resolve(undefined);
-      }, timeoutMs);
-      const onReply = (text: string): void => {
+      const finish = (text: string | undefined): void => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        instance.waiters = instance.waiters.filter((w) => w !== onReply);
         resolve(text);
       };
+      const onReply = (text: string): void => finish(text);
+      const onAbort = (): void => finish(undefined);
+      const timer = setTimeout(() => finish(undefined), timeoutMs);
+      signal?.addEventListener("abort", onAbort, { once: true });
       instance.waiters.push(onReply);
     });
   }
 
-  /** Drop instances that have not called in for a while, releasing waiters. */
+  /**
+   * Forget every instance registered under a per-turn session. Called when the
+   * daemon revokes that session's token (its `claude -p` process has exited),
+   * so a later swipe-reply is routed as a new turn instead of into a dead inbox.
+   */
+  dropBySession(sessionId: string): number {
+    let removed = 0;
+    for (const [id, inst] of this.byId) {
+      if (inst.sessionId === sessionId) {
+        this.byId.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
+  /** Drop instances that have not called in for a while, releasing nothing that is still polling. */
   prune(maxIdleMs: number, now: number = Date.now()): number {
     let removed = 0;
     for (const [id, inst] of this.byId) {

@@ -25,7 +25,9 @@ export type AuditEvent =
   | { kind: "guardrail.blocked"; tool: string; rule: string; detail: string }
   | { kind: "panic"; active: boolean }
   | { kind: "config.changed"; field: string; detail: string }
-  | { kind: "ipc.rejected"; reason: string };
+  | { kind: "ipc.rejected"; reason: string }
+  /** An owner swipe-reply was handed to a bridge session (FR-19 two-way). */
+  | { kind: "reply.routed"; label: string; mode: "waiting" | "push" | "queued" };
 
 const AUDIT_PATH = path.join(DATA_DIR, "audit.jsonl");
 

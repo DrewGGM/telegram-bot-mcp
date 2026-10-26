@@ -28,13 +28,15 @@ const transport = new StdioClientTransport({
     ...process.env,
     TBM_IPC_URL: url,
     TBM_IPC_TOKEN: loadOrCreateGlobalToken(),
-    TBM_LABEL: "prueba-respuesta",
+    TBM_LABEL: "smoke-reply",
+    // This script is the parent, not claude: replies must come back through the tool.
+    TBM_CHANNEL: "0",
   },
 });
 const client = new Client({ name: "reply-smoke", version: "1.0.0" });
 await client.connect(transport);
 
-console.log("Enviando mensaje y esperando tu respuesta en Telegram (3 min)…");
+console.log("Sending a message and waiting for your reply on Telegram (3 min)…");
 console.log("👉 Haz swipe/mantén pulsado sobre el mensaje del bot y responde.\n");
 
 const res = await client.callTool({
@@ -49,7 +51,7 @@ const res = await client.callTool({
 const text = res.content?.[0]?.text ?? "";
 console.log(`\n▶ La sesión recibió: ${text}`);
 const ok = /The owner replied:/.test(text);
-console.log(ok ? "   ✅ PASS — la respuesta volvió a esta sesión" : "   ❌ FAIL / timeout");
+console.log(ok ? "   ✅ PASS — the reply came back to this session" : "   ❌ FAIL / timeout");
 
 await client.close();
 process.exit(ok ? 0 : 1);

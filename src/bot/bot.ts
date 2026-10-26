@@ -3,19 +3,10 @@ import type { UserFromGetMe } from "grammy/types";
 import path from "node:path";
 import { Agent } from "node:https";
 import { homedir } from "node:os";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { type Config, type SessionMode, saveConfig } from "../config/config.js";
 import type { SessionStore, Session } from "../sessions/store.js";
 import type { TurnCallbacks } from "../sessions/manager.js";
-
-/** The slice of SessionManager the bot depends on (kept minimal for testability). */
-export interface ManagerLike {
-  runTurn(session: Session, prompt: string, cb: TurnCallbacks): Promise<void>;
-  kill(sessionId: string): void;
-  killAll(): number;
-  isPanicked: boolean;
-  setPanicked(v: boolean): void;
-}
 import { PendingQuestions } from "./pending.js";
 import { authMiddleware } from "./auth.js";
 import { RateLimiter } from "./ratelimit.js";
@@ -33,18 +24,30 @@ import {
 import { isPathAllowed } from "../security/paths.js";
 import { prepareOversize } from "../files/oversize.js";
 import {
-  probeLocalServer,
-  uploadViaLocalServer,
-  sendMessageViaLocalServer,
   isLocalServerUp,
+  uploadViaLocalServer,
   forgetLocalServerAvailability,
+  localFirstTransformer,
   LOCAL_SEND_LIMIT,
-} from "../files/localupload.js";
-import { writeFileSync, rmSync } from "node:fs";
-import type { BridgeTarget, TelegramBridge } from "../ipc/protocol.js";
+} from "../telegram/localApi.js";
+import {
+  GLOBAL_SESSION_ID,
+  type BridgeTarget,
+  type SendFileResult,
+  type TelegramBridge,
+} from "../ipc/protocol.js";
 import type { InstanceRegistry } from "../ipc/instances.js";
 import { audit } from "../audit/audit.js";
 import { log } from "../logger.js";
+
+/** The slice of SessionManager the bot depends on (kept minimal for testability). */
+export interface ManagerLike {
+  runTurn(session: Session, prompt: string, cb: TurnCallbacks): Promise<void>;
+  kill(sessionId: string): void;
+  killAll(): number;
+  isPanicked: boolean;
+  setPanicked(v: boolean): void;
+}
 
 export interface BotDeps {
   token: string;
@@ -54,10 +57,52 @@ export interface BotDeps {
   manager: ManagerLike;
   pending: PendingQuestions;
   startedAt: number;
-  /** Live foreign sessions (desktop registration), for reply routing. */
+  /** Live bridge sessions (desktop registration and per-turn), for reply routing. */
   instances?: InstanceRegistry;
   /** Preset bot identity to skip the getMe call (used in offline tests). */
   botInfo?: UserFromGetMe;
+}
+
+const YES_LABEL = "✅ Yes";
+const NO_LABEL = "❌ No";
+const MAX_LIST_ENTRIES = 100;
+
+/** Error messages that mean "the network hiccuped", worth one more try. */
+const TRANSIENT_ERROR = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|ECONNREFUSED|network|failed/i;
+
+/**
+ * grammY handles long-polling updates strictly one at a time. A handler that
+ * awaited a whole Claude turn (minutes) or a button tap would therefore freeze
+ * every other update — including the very tap it was waiting for, and /panic.
+ * Long work is detached: the handler returns at once and failures are logged.
+ */
+function detach(work: Promise<unknown>, what: string): void {
+  work.catch((err) => log.error({ err, what }, "detached task failed"));
+}
+
+/**
+ * Retry a Telegram call on transient network failures. grammY keeps HTTP
+ * sockets alive and the long-polling loop leaves idle ones behind; when
+ * Telegram has already closed one, reusing it surfaces as `write ECONNRESET`.
+ * A retry gets a fresh socket.
+ */
+async function withRetry<T>(fn: () => Promise<T>, what: string, attempts = 3, baseDelayMs = 500): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!TRANSIENT_ERROR.test(String(err)) || attempt === attempts) throw err;
+      log.warn({ attempt, what, err: String(err) }, "transient Telegram failure, retrying");
+      await new Promise((r) => setTimeout(r, baseDelayMs * attempt));
+    }
+  }
+  throw lastErr;
+}
+
+function threadOpts(target: BridgeTarget): { message_thread_id?: number } {
+  return target.topicId !== undefined ? { message_thread_id: target.topicId } : {};
 }
 
 /**
@@ -74,91 +119,44 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     ...(deps.botInfo ? { botInfo: deps.botInfo } : {}),
     client: { baseFetchConfig: { agent: new Agent({ keepAlive: false }) } },
   });
+  // Every outgoing call prefers the local Bot API server when one is running:
+  // on a link where api.telegram.org is lossy it reaches Telegram over MTProto
+  // and is markedly more reliable. Falls back to the cloud API transparently.
+  bot.api.config.use(
+    localFirstTransformer({ getApiRoot: () => getConfig().localApiRoot, token: deps.token }),
+  );
   const rate = new RateLimiter(getConfig().rateLimitPerMinute);
 
   // ---- low-level send helpers -------------------------------------------------
 
-  /**
-   * Send (chunked) and return the id of the LAST part - the one you would reply to.
-   *
-   * Prefers the local Bot API server when it is running: on a link where
-   * api.telegram.org is lossy, the local server reaches Telegram over MTProto and
-   * is markedly more reliable. Falls back to grammY, retrying transient socket
-   * failures, so neither route being down loses the message silently.
-   */
+  /** Send (chunked) and return the id of the LAST part - the one you would reply to. */
   async function send(target: BridgeTarget, text: string): Promise<number | undefined> {
-    const apiRoot = getConfig().localApiRoot;
     let lastId: number | undefined;
     for (const part of chunkMessage(text)) {
-      if (await isLocalServerUp(apiRoot, deps.token)) {
-        const via = await sendMessageViaLocalServer(apiRoot, deps.token, target.chatId, part, target.topicId);
-        if (via.ok) {
-          lastId = via.messageId;
-          continue;
-        }
-        forgetLocalServerAvailability();
-        log.warn({ err: via.error }, "local Bot API sendMessage failed, falling back to the cloud API");
-      }
-      lastId = await sendViaCloudRetrying(target, part);
+      const msg = await withRetry(
+        () => bot.api.sendMessage(target.chatId, part, threadOpts(target)),
+        "sendMessage",
+      );
+      lastId = msg.message_id;
     }
     return lastId;
   }
 
-  /** grammY send with bounded retries for transient network failures. */
-  async function sendViaCloudRetrying(
-    target: BridgeTarget,
-    part: string,
-    attempts = 3,
-  ): Promise<number | undefined> {
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        const sentMsg = await bot.api.sendMessage(target.chatId, part, {
-          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-        });
-        return sentMsg.message_id;
-      } catch (err) {
-        lastErr = err;
-        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network|failed/i.test(
-          String(err),
-        );
-        if (!transient || attempt === attempts) throw err;
-        log.warn({ attempt, err: String(err) }, "sendMessage failed, retrying");
-        await new Promise((r) => setTimeout(r, 500 * attempt));
-      }
-    }
-    throw lastErr;
-  }
-
   /**
-   * Upload a document, retrying transient socket failures.
-   *
-   * grammY keeps HTTP connections alive, and the long-polling loop leaves idle
-   * sockets around. When Telegram has already closed one, reusing it surfaces as
-   * `write ECONNRESET` part-way through the request body. Small calls rarely hit
-   * it; multi-hundred-KB uploads do, reliably. A retry gets a fresh socket, so
-   * the InputFile is rebuilt from the path on every attempt (an InputFile that
-   * has begun streaming cannot be replayed).
+   * Upload a document through the cloud API. The InputFile is rebuilt from the
+   * path on every attempt: one that has begun streaming cannot be replayed.
    */
-  async function sendDocumentRetrying(
-    chatId: number,
-    filePath: string,
-    opts: Record<string, unknown>,
-    attempts = 3,
-  ) {
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        return await bot.api.sendDocument(chatId, new InputFile(filePath), opts);
-      } catch (err) {
-        lastErr = err;
-        const transient = /ECONNRESET|socket hang up|ETIMEDOUT|EPIPE|ENOTFOUND|network/i.test(String(err));
-        if (!transient || attempt === attempts) throw err;
-        log.warn({ attempt, filePath, err: String(err) }, "upload failed, retrying on a fresh socket");
-        await new Promise((r) => setTimeout(r, 750 * attempt));
-      }
-    }
-    throw lastErr;
+  function sendDocument(target: BridgeTarget, filePath: string, caption?: string) {
+    return withRetry(
+      () =>
+        bot.api.sendDocument(target.chatId, new InputFile(filePath), {
+          ...(caption ? { caption } : {}),
+          ...threadOpts(target),
+        }),
+      `sendDocument ${filePath}`,
+      3,
+      750,
+    );
   }
 
   /**
@@ -173,12 +171,12 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     filePath: string,
     size: number,
     caption?: string,
-  ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+  ): Promise<SendFileResult> {
     // Preferred route: a local Bot API server lifts the limit to 2000 MB, so the
     // file goes out untouched. Only if it is unavailable do we degrade to
     // compressing or splitting.
     const apiRoot = getConfig().localApiRoot;
-    if (size <= LOCAL_SEND_LIMIT && (await probeLocalServer(apiRoot, deps.token))) {
+    if (size <= LOCAL_SEND_LIMIT && (await isLocalServerUp(apiRoot, deps.token, true))) {
       await send(target, `📦 ${humanSize(size)} - sending in full via the local Bot API server...`);
       const up = await uploadViaLocalServer(apiRoot, deps.token, target.chatId, filePath, {
         ...(caption ? { caption } : {}),
@@ -203,10 +201,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       for (const [i, part] of plan.files.entries()) {
         const label =
           plan.files.length > 1 ? `${path.basename(part)} (${i + 1}/${plan.files.length})` : caption;
-        const sentPart = await sendDocumentRetrying(target.chatId, part, {
-          ...(label ? { caption: label } : {}),
-          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-        });
+        const sentPart = await sendDocument(target, part, label);
         lastId = sentPart.message_id;
       }
       audit({ kind: "file.sent", path: filePath, bytes: size });
@@ -221,9 +216,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   async function typing(target: BridgeTarget): Promise<void> {
     try {
-      await bot.api.sendChatAction(target.chatId, "typing", {
-        ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-      });
+      await bot.api.sendChatAction(target.chatId, "typing", threadOpts(target));
     } catch {
       /* best effort */
     }
@@ -238,20 +231,33 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       kb.text(opt, pending.callbackData(id, i));
       if ((i + 1) % 2 === 0) kb.row();
     });
-    await bot.api.sendMessage(target.chatId, question, {
-      reply_markup: kb,
-      ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-    });
+    for (const part of chunkMessage(question)) {
+      // Buttons go on the last part, the one the owner sees at the bottom.
+      await withRetry(
+        () =>
+          bot.api.sendMessage(target.chatId, part, {
+            ...(part === chunkMessage(question).at(-1) ? { reply_markup: kb } : {}),
+            ...threadOpts(target),
+          }),
+        "ask",
+      );
+    }
     return promise;
   }
 
   async function confirm(target: BridgeTarget, prompt: string): Promise<boolean> {
-    const answer = await ask(target, prompt, ["✅ Sí", "❌ No"]);
-    return answer.includes("Sí");
+    const answer = await ask(target, prompt, [YES_LABEL, NO_LABEL]);
+    return answer === YES_LABEL;
   }
 
   function targetOf(session: Session): BridgeTarget {
     return { chatId: session.chatId, ...(session.topicId !== undefined ? { topicId: session.topicId } : {}) };
+  }
+
+  /** Where a reply to this update belongs: same chat, same forum topic. */
+  function targetOfCtx(ctx: { chat: { id: number }; msg?: { message_thread_id?: number } }): BridgeTarget {
+    const topicId = ctx.msg?.message_thread_id;
+    return { chatId: ctx.chat.id, ...(topicId !== undefined ? { topicId } : {}) };
   }
 
   // ---- allowlist / folder resolution -----------------------------------------
@@ -381,6 +387,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
         "/panic — kill everything & lock  ·  /unlock — resume",
         "",
         "Modes: ro (read-only) · edit (auto-edit) · full (auto, still guarded)",
+        "Reply (swipe) to a message from a Claude Code session to answer that session.",
       ].join("\n"),
       { parse_mode: "Markdown" },
     );
@@ -390,13 +397,14 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const cfg = getConfig();
     const up = Math.floor((Date.now() - deps.startedAt) / 1000);
     const active = store.list().filter((s) => s.state !== "hibernated");
+    const live = (deps.instances?.list() ?? []).filter((i) => deps.instances!.isAlive(i.id)).length;
     const lines = [
       `🤖 Bridge ${manager.isPanicked ? "🔒 LOCKED (/panic)" : "online"}`,
       `⏱ uptime: ${formatDuration(up)}`,
       `🧠 default model: ${cfg.defaultModel} · default mode: ${cfg.defaultMode}`,
       `📂 allowed folders:\n${cfg.allowedDirs.map((d) => `  • ${d}`).join("\n") || "  (none)"}`,
       "",
-      `🗂 sessions (${active.length}):`,
+      `🗂 sessions (${active.length}) · 🖥 connected Claude Code sessions: ${live}`,
       ...store.list().map((s) => `  ${s.id} · ${path.basename(s.cwd)} · ${s.model}/${s.mode} · ${s.state}`),
     ];
     await ctx.reply(lines.join("\n"));
@@ -497,7 +505,8 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
 
   bot.command("sessions", async (ctx) => {
     const list = store.list();
-    const foreign = deps.instances?.list() ?? [];
+    const registry = deps.instances;
+    const foreign = registry ? registry.list().filter((i) => registry.isAlive(i.id)) : [];
     const parts: string[] = [];
 
     if (list.length) {
@@ -512,15 +521,19 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       );
     }
     if (foreign.length) {
-      // Foreign = Claude Code sessions elsewhere on this machine that registered
-      // the bridge. You answer one by swiping on a message it sent.
+      // Claude Code sessions elsewhere on this machine with the bridge attached.
+      // You answer one by swiping on a message it sent.
       parts.push(
         "🖥 Connected Claude Code sessions (reply to their messages to answer):\n" +
           foreign
             .map((i) => {
-              const idleMin = Math.round((Date.now() - i.lastSeenAt) / 60_000);
-              const waiting = i.waiters.length > 0 ? " · ⏳ waiting for you" : "";
-              return `[${i.label}] · ${i.cwd}\n   last seen ${idleMin}m ago${waiting}`;
+              const idle = Math.round((Date.now() - i.lastSeenAt) / 1000);
+              const mode = i.waiting
+                ? "⏳ waiting for your reply"
+                : i.push
+                  ? "📡 live — replies go straight into the session"
+                  : "📥 inbox — replies are read when it next waits";
+              return `[${i.label}] · ${i.cwd}\n   ${mode} · seen ${idle}s ago`;
             })
             .join("\n"),
       );
@@ -576,7 +589,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       return;
     }
     const lines = res
-      .value!.slice(0, 100)
+      .value!.slice(0, MAX_LIST_ENTRIES)
       .map((e) => (e.isDir ? `📁 ${e.name}` : `📄 ${e.name} (${humanSize(e.size)})`));
     await ctx.reply(`📂 ${dir.dir}\n\n${lines.join("\n") || "(empty)"}`);
   });
@@ -606,13 +619,10 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       await ctx.reply(`⚠️ ${res.error}`);
       return;
     }
-    if (res.value!.size > TELEGRAM_SEND_LIMIT) {
-      await deliverOversize({ chatId: ctx.chat.id }, res.value!.path, res.value!.size);
-      return;
-    }
-    await ctx.replyWithChatAction("upload_document");
-    await sendDocumentRetrying(ctx.chat.id, res.value!.path, {});
-    audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
+    await ctx.replyWithChatAction("upload_document").catch(() => {});
+    // Same path as the agent's telegram_send_file: local server first, oversize
+    // handling, and delivery into the topic the command came from.
+    detach(bridge.sendFile(targetOfCtx(ctx), res.value!.path), "/get");
   });
 
   bot.command("config", async (ctx) => {
@@ -620,21 +630,38 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     const [sub, ...rest] = ctx.match.trim().split(/\s+/).filter(Boolean);
     const value = rest.join(" ");
     if (sub === "add" && value) {
-      // Must be an absolute path to a real DIRECTORY. The previous version also
-      // tested `!check` on an object, which is always false: it never fired, so a
-      // plain file could be added to the allowlist as if it were a folder.
+      // Must be an absolute path to a real DIRECTORY, otherwise a plain file
+      // could be added to the allowlist as if it were a folder.
       const isDir = existsSync(value) && statSync(value).isDirectory();
       if (!path.isAbsolute(value) || !isDir) {
         await ctx.reply("Provide an absolute path to an existing folder: /config add C:\\Users\\me\\Docs");
         return;
       }
-      const ok = await confirm({ chatId: ctx.chat.id }, `Add this folder to the allowlist?\n${value}`);
-      if (!ok) return void ctx.reply("Cancelled.");
-      const next = { ...cfg, allowedDirs: [...new Set([...cfg.allowedDirs, path.resolve(value)])] };
-      saveConfig(next);
-      setConfig(next);
-      audit({ kind: "config.changed", field: "allowedDirs.add", detail: value });
-      await ctx.reply(`✅ Added. Allowed folders:\n${next.allowedDirs.map((d) => `• ${d}`).join("\n")}`);
+      const target = targetOfCtx(ctx);
+      // Detached: the confirmation tap is itself an update, which could not be
+      // processed while this handler sat waiting for it.
+      detach(
+        (async () => {
+          const ok = await confirm(target, `Add this folder to the allowlist?\n${value}`);
+          if (!ok) {
+            await send(target, "Cancelled.");
+            return;
+          }
+          const current = getConfig();
+          const next = {
+            ...current,
+            allowedDirs: [...new Set([...current.allowedDirs, path.resolve(value)])],
+          };
+          saveConfig(next);
+          setConfig(next);
+          audit({ kind: "config.changed", field: "allowedDirs.add", detail: value });
+          await send(
+            target,
+            `✅ Added. Allowed folders:\n${next.allowedDirs.map((d) => `• ${d}`).join("\n")}`,
+          );
+        })(),
+        "/config add",
+      );
     } else if (sub === "remove" && value) {
       const next = {
         ...cfg,
@@ -694,17 +721,23 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
       await ctx.reply(`⚠️ ${dest.error}`);
       return;
     }
-    try {
-      const file = await ctx.getFile();
-      const url = `https://api.telegram.org/file/bot${deps.token}/${file.file_path}`;
-      const resp = await fetch(url);
-      const buf = Buffer.from(await resp.arrayBuffer());
-      writeFileSync(dest.value!.path, buf);
-      audit({ kind: "file.received", path: dest.value!.path, bytes: buf.length });
-      await ctx.reply(`✅ Saved to ${dest.value!.path} (${humanSize(buf.length)}).`);
-    } catch (e) {
-      await ctx.reply(`⚠️ Could not save the file: ${String(e)}`);
-    }
+    const target = targetOfCtx(ctx);
+    detach(
+      (async () => {
+        try {
+          const file = await ctx.getFile();
+          const url = `https://api.telegram.org/file/bot${deps.token}/${file.file_path}`;
+          const resp = await fetch(url);
+          const buf = Buffer.from(await resp.arrayBuffer());
+          writeFileSync(dest.value!.path, buf);
+          audit({ kind: "file.received", path: dest.value!.path, bytes: buf.length });
+          await send(target, `✅ Saved to ${dest.value!.path} (${humanSize(buf.length)}).`);
+        } catch (e) {
+          await send(target, `⚠️ Could not save the file: ${String(e)}`);
+        }
+      })(),
+      "upload",
+    );
   });
 
   // ---- plain text → route to a session ---------------------------------------
@@ -714,20 +747,34 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     if (text.startsWith("/")) return; // unknown command; ignore quietly
     const cfg = getConfig();
 
-    // Replying to a message a foreign Claude Code session sent? Deliver it to
-    // that session's inbox instead of running a turn here (FR-19 two-way).
+    // Replying to a message a Claude Code session sent? Hand it to that
+    // session instead of running a turn here (FR-19 two-way).
     const repliedTo = ctx.msg.reply_to_message?.message_id;
     if (repliedTo !== undefined && deps.instances) {
       const origin = deps.instances.ownerOfMessage(repliedTo);
       if (origin) {
-        const delivered = origin.alive && deps.instances.deliver(origin.id, text);
-        await ctx.reply(
-          delivered
-            ? `📨 Sent to [${origin.label}].`
-            : `⚠️ [${origin.label}] is no longer running, so it can't receive this.`,
-          { reply_to_message_id: ctx.msg.message_id },
-        );
-        return;
+        if (origin.alive && deps.instances.deliver(origin.id, text)) {
+          const mode = origin.waiting ? "waiting" : origin.push ? "push" : "queued";
+          audit({ kind: "reply.routed", label: origin.label, mode });
+          const how =
+            mode === "waiting"
+              ? "it was waiting for this"
+              : mode === "push"
+                ? "pushed straight into the session"
+                : "queued until it next waits for a reply";
+          await ctx.reply(`📨 Sent to [${origin.label}] — ${how}.`, {
+            reply_parameters: { message_id: ctx.msg.message_id },
+          });
+          return;
+        }
+        if (origin.sessionId === GLOBAL_SESSION_ID || origin.sessionId === "") {
+          await ctx.reply(`⚠️ [${origin.label}] is no longer running, so it can't receive this.`, {
+            reply_parameters: { message_id: ctx.msg.message_id },
+          });
+          return;
+        }
+        // The message came from a session this daemon runs. Its turn is over,
+        // so the reply is simply the next message for that chat/topic below.
       }
     }
 
@@ -744,7 +791,9 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
     if (!session) return;
 
     audit({ kind: "command", command: "<message>", userId: ctx.from!.id });
-    await runTurn(session, text);
+    // Detached: a turn can take minutes, and the update loop must stay free
+    // for button taps, replies to other sessions, and /panic meanwhile.
+    detach(runTurn(session, text), `turn ${session.id}`);
   });
 
   /** Create the implicit read-only default session for the owner's private chat (FR-4). */
@@ -778,10 +827,7 @@ export function createBot(deps: BotDeps): { bot: Bot; bridge: TelegramBridge } {
         });
         await send(
           target,
-          `⚠️ Blocked file send: ${res.error}
-${filePath}
-
-Allow it with: /config add <folder>`,
+          `⚠️ Blocked file send: ${res.error}\n${filePath}\n\nAllow it with: /config add <folder>`,
         );
         return { ok: false, error: `${res.error}: ${filePath}` };
       }
@@ -795,9 +841,8 @@ Allow it with: /config add <folder>`,
       }
 
       // The local Bot API server is both more reliable on a lossy link and not
-      // bound by the 50 MB cap, so prefer it for EVERY upload - not just the big
-      // ones. Files that failed here used to be the small ones, which was exactly
-      // backwards.
+      // bound by the 50 MB cap, so prefer it for EVERY upload, not just the big
+      // ones.
       const apiRoot = getConfig().localApiRoot;
       const localUp = await isLocalServerUp(apiRoot, deps.token);
       const limit = localUp ? LOCAL_SEND_LIMIT : TELEGRAM_SEND_LIMIT;
@@ -819,19 +864,12 @@ Allow it with: /config add <folder>`,
       }
 
       try {
-        const sent = await sendDocumentRetrying(target.chatId, res.value!.path, {
-          ...(fileCaption ? { caption: fileCaption } : {}),
-          ...(target.topicId !== undefined ? { message_thread_id: target.topicId } : {}),
-        });
+        const sent = await sendDocument(target, res.value!.path, fileCaption);
         audit({ kind: "file.sent", path: res.value!.path, bytes: res.value!.size });
         return { ok: true, messageId: sent.message_id };
       } catch (err) {
         const error = `upload failed: ${String(err)}`;
-        await send(
-          target,
-          `⚠️ Could not upload ${filePath}
-${String(err)}`,
-        );
+        await send(target, `⚠️ Could not upload ${filePath}\n${String(err)}`);
         return { ok: false, error };
       }
     },

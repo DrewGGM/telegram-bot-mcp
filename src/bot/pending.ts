@@ -1,3 +1,5 @@
+import { ASK_CANCELLED_ANSWER, ASK_TIMEOUT_ANSWER } from "../ipc/protocol.js";
+
 /**
  * Registry of in-flight inline-keyboard questions. Backs both destructive-op
  * confirmations (FR-16) and the MCP `telegram_ask_user` tool (FR-17): a message
@@ -11,17 +13,22 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export const DEFAULT_QUESTION_TIMEOUT_MS = 10 * 60_000;
+
 export class PendingQuestions {
   private readonly map = new Map<string, Pending>();
   private seq = 0;
 
   /** Register a question; returns its id and a promise that resolves on answer. */
-  register(options: string[], timeoutMs = 10 * 60_000): { id: string; promise: Promise<string> } {
+  register(
+    options: string[],
+    timeoutMs: number = DEFAULT_QUESTION_TIMEOUT_MS,
+  ): { id: string; promise: Promise<string> } {
     const id = (++this.seq).toString(36);
     const promise = new Promise<string>((resolve) => {
       const timer = setTimeout(() => {
         this.map.delete(id);
-        resolve("__timeout__");
+        resolve(ASK_TIMEOUT_ANSWER);
       }, timeoutMs);
       this.map.set(id, { options, resolve, timer });
     });
@@ -53,8 +60,13 @@ export class PendingQuestions {
     return { matched: true, chosen };
   }
 
+  /** How many questions are still waiting for a tap. */
+  get size(): number {
+    return this.map.size;
+  }
+
   /** Reject/close all pending questions (e.g. on /panic). */
-  clear(answer = "__cancelled__"): void {
+  clear(answer: string = ASK_CANCELLED_ANSWER): void {
     for (const [, p] of this.map) {
       clearTimeout(p.timer);
       p.resolve(answer);

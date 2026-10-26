@@ -68,6 +68,9 @@ export function evaluateHook(
   return { block: false };
 }
 
+// The process glue below is covered by hook-process.test.ts (a real subprocess),
+// which v8 coverage cannot observe in-process.
+/* v8 ignore start */
 function readAllowedDirs(): string[] {
   try {
     const raw = process.env.TBM_ALLOWED_DIRS;
@@ -122,3 +125,4 @@ const isDirectRun = process.argv[1] !== undefined && /security[\\/]hook\.(ts|js)
 if (isDirectRun) {
   void main();
 }
+/* v8 ignore stop */

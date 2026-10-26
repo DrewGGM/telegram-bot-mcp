@@ -5,11 +5,14 @@ import { SessionManager } from "./sessions/manager.js";
 import { PendingQuestions } from "./bot/pending.js";
 import { IpcServer } from "./ipc/server.js";
 import { loadOrCreateGlobalToken } from "./ipc/globalToken.js";
+import { GLOBAL_SESSION_ID, type TelegramBridge } from "./ipc/protocol.js";
 import { writeGuardrails } from "./security/guardrails.js";
 import { createBot } from "./bot/bot.js";
-import type { TelegramBridge } from "./ipc/protocol.js";
 import { audit } from "./audit/audit.js";
 import { log } from "./logger.js";
+
+/** Bridge instances that stopped polling this long ago are forgotten. */
+const INSTANCE_PRUNE_MS = 10 * 60_000;
 
 /**
  * Daemon entrypoint. Wires the modules, starts the loopback IPC server, long-
@@ -41,7 +44,7 @@ async function main(): Promise<void> {
   // the owner's private chat at request time, so any Claude Code session on this
   // machine can notify you once registered — and it keeps working after restarts.
   const globalToken = loadOrCreateGlobalToken();
-  ipc.registerPersistent("global", globalToken, () =>
+  ipc.registerPersistent(GLOBAL_SESSION_ID, globalToken, () =>
     getConfig().ownerId ? { chatId: getConfig().ownerId } : undefined,
   );
 
@@ -71,8 +74,7 @@ async function main(): Promise<void> {
       store.update(s.id, { state: "hibernated" });
       audit({ kind: "session.hibernated", sessionId: s.id });
     }
-    // Forget foreign sessions that have gone quiet for an hour.
-    ipc.instances.prune(60 * 60_000);
+    ipc.instances.prune(INSTANCE_PRUNE_MS);
   }, 60_000);
   sweep.unref?.();
 
