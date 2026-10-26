@@ -1,15 +1,27 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { defineConfig } from "vitest/config";
+
+// Tests must never touch the real daemon's state: a `/config add` test once
+// overwrote the live config.json. Every run gets a scratch data dir and config
+// path; subprocesses spawned by tests inherit them through process.env.
+const scratch = mkdtempSync(path.join(tmpdir(), "tbm-test-"));
 
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    env: {
+      TBM_DATA_DIR: scratch,
+      TBM_CONFIG_PATH: path.join(scratch, "config.json"),
+    },
     coverage: {
       provider: "v8",
       // The TDD-critical modules (security baseline §4.2) plus the pure routing
       // logic of the bridge. Their logic must stay ≥90%. I/O glue (guardrails.ts
-      // writer, hook.ts main(), the daemon entrypoint) is excluded — it is
-      // exercised by the real-process smoke tests instead.
+      // writer, the daemon entrypoint) is excluded — it is exercised by the
+      // real-process smoke tests instead.
       include: [
         "src/security/paths.ts",
         "src/security/commands.ts",

@@ -36,7 +36,12 @@ await client.connect(transport);
 let pass = 0;
 let total = 0;
 
-const REQUIRED_TOOLS = ["telegram_send_message", "telegram_send_file", "telegram_ask_user", "telegram_wait_reply"];
+const REQUIRED_TOOLS = [
+  "telegram_send_message",
+  "telegram_send_file",
+  "telegram_ask_user",
+  "telegram_wait_reply",
+];
 total++;
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();

@@ -33,9 +33,9 @@ const ConfigSchema = z.object({
    */
   ipcPort: z.number().int().min(1024).max(65535).default(8765),
   /**
-   * Local Bot API server used only to send files above the cloud's 50 MB limit
-   * (up to 2000 MB). Probed at startup; when it is not running the daemon falls
-   * back to compressing/splitting, so this is never a hard dependency.
+   * Optional local Bot API server. Every outgoing call is tried there first
+   * (more reliable, and uploads up to 2000 MB); when it is not running the
+   * daemon falls back to the cloud API, so this is never a hard dependency.
    */
   localApiRoot: z.string().default("http://127.0.0.1:8081"),
 });
@@ -43,8 +43,19 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 export const PROJECT_ROOT = path.resolve(path.join(import.meta.dirname, "..", ".."));
-export const DATA_DIR = path.join(PROJECT_ROOT, "data");
-const CONFIG_PATH = path.join(PROJECT_ROOT, "config.json");
+
+/**
+ * Where runtime state lives (sessions, audit log, bridge token, generated
+ * configs) and where config.json is read from. Both can be redirected with
+ * TBM_DATA_DIR / TBM_CONFIG_PATH so test runs and ad-hoc experiments never
+ * touch the real daemon's files.
+ */
+export const DATA_DIR = process.env.TBM_DATA_DIR
+  ? path.resolve(process.env.TBM_DATA_DIR)
+  : path.join(PROJECT_ROOT, "data");
+const CONFIG_PATH = process.env.TBM_CONFIG_PATH
+  ? path.resolve(process.env.TBM_CONFIG_PATH)
+  : path.join(PROJECT_ROOT, "config.json");
 
 export function loadConfig(): Config {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -60,6 +71,7 @@ export function loadConfig(): Config {
 }
 
 export function saveConfig(config: Config): void {
+  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
